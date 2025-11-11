@@ -1,0 +1,6 @@
+{
+    "round": 0,
+    "current_model": "http::http://localhost:8000/generate",
+    "history": []
+  }
+  
