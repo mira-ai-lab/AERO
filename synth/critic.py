@@ -2,7 +2,7 @@
 import os, re, json
 import sympy as sp
 import openai
-openai.api_key = os.environ.get("OPENAI_API_KEY", "")
+openai.api_key = os.environ.get("OPENAI_API_KEY", "sk-pew2UshHFpIXk3afA2B1C3A9F4A54250AfAc109c23D728B5")
 
 def self_check_llm(answer: str, question: str, openai_model="gpt-4"):
     prompt = f"""你是物理题批评家（精通计算与量纲检验）。题目：{question}

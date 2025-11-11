@@ -9,11 +9,19 @@ Physics Self-Play (PSP) pipeline
 import os, json, yaml, subprocess, time, requests
 from datetime import datetime
 from cluster.cluster_agent import ClusterAgent
+# 导入我们需要的 utils.io 中的函数
+from utils.io import read_jsonl
 
 # ===== 配置加载 =====
 CFG = yaml.safe_load(open("config.yaml"))
 STATE_FILE = "pipeline/pipeline_state.json"
 VLLM_PORT = 8000
+# LLaMA-Factory 相关配置
+LLAMA_FACTORY_DIR = CFG["default"]["llama_factory_dir"]
+DPO_GPUS = CFG["default"]["dpo_gpus"]
+DPO_TRAIN_TEMPLATE_YAML = os.path.join(LLAMA_FACTORY_DIR, CFG["default"]["dpo_train_template_yaml"])
+DPO_MERGE_TEMPLATE_YAML = os.path.join(LLAMA_FACTORY_DIR, CFG["default"]["dpo_merge_template_yaml"])
+
 
 # ===== 状态管理 =====
 def load_state():
@@ -41,7 +49,12 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
 
     # 2. 启动新模型
-    cmd = f"nohup vllm serve {model_path} --port {port} --max-model-len 8192 > vllm_round.log 2>&1 &"
+    # (确保这里的 GPU 设置不会与 DPO 训练冲突，或者按需修改)
+    vllm_gpus = "4,5" # 示例：vLLM 使用 0,1
+    tensor_parallel_size = 2
+    cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
+           f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} "
+           f"> vllm_round.log 2>&1 &")
     subprocess.run(cmd, shell=True)
     print(f"[vLLM] 启动命令：{cmd}")
 
@@ -75,20 +88,125 @@ def run_inner_loop(current_model, round_idx):
         "--model_spec", current_model
     ]
     subprocess.run(cmd, check=True, env=env)
-    subprocess.run(["python3", "dpo/make_dpo_pairs.py"], check=True)
+    
+    # (重要) 运行新修改的 make_dpo_pairs 脚本
+    # 它现在只转换数据为 .json 格式，不再合并
+    cmd_dpo_convert = ["python3", "utils/make_dpo_pairs.py"]
+    if os.name == 'posix':
+        # 确保使用 -m 方式运行，以处理模块路径问题
+        cmd_dpo_convert = ["python3", "-m", "utils.make_dpo_pairs"]
+    subprocess.run(cmd_dpo_convert, check=True)
+    
     print(f"[Round {round_idx}] ✅ 内循环完成。\n")
 
-# ===== 外循环 (DPO 训练) =====
-def run_outer_loop(current_model, round_idx):
-    print(f"[Round {round_idx}] 🧠 外循环 DPO 训练中...")
-    out_dir = f"models/psp_round_{round_idx}"
-    os.makedirs(out_dir, exist_ok=True)
-    cmd_template = CFG["default"]["dpo_train_cmd_template"]
-    cmd = cmd_template.format(model=current_model, out_dir=out_dir)
-    print(f"[RUN] {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
-    print(f"[Round {round_idx}] ✅ 外循环训练完成，新模型保存至 {out_dir}")
-    return f"local::{out_dir}"
+
+# ===== DPO 数据集准备 (LLaMA-Factory) =====
+def prepare_dpo_data_for_llamafactory(round_idx, llama_factory_dir):
+    """
+    动态合并、写入和注册 LLaMA-Factory 所需的数据集。
+    """
+    print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
+    
+    # 1. 定义数据集名称和路径
+    dataset_name = f"psp_dpo_round_{round_idx}"
+    file_name = f"{dataset_name}.json"
+    dataset_file_path = os.path.join(llama_factory_dir, "data", file_name)
+    dataset_info_path = os.path.join(llama_factory_dir, "data", "dataset_info.json")
+    
+    # 2. 合并已转换的 ShareGPT 格式数据
+    combined_data = []
+    if os.path.exists("dpo_data/answers_dpo.json"):
+        with open("dpo_data/answers_dpo.json", 'r', encoding='utf-8') as f:
+            combined_data.extend(json.load(f))
+    if os.path.exists("dpo_data/questions_dpo.json"):
+        with open("dpo_data/questions_dpo.json", 'r', encoding='utf-8') as f:
+            combined_data.extend(json.load(f))
+            
+    # 3. 将合并后的数据写入 LLaMA-Factory/data 目录
+    with open(dataset_file_path, 'w', encoding='utf-8') as f:
+        json.dump(combined_data, f, ensure_ascii=False, indent=2)
+    print(f"Wrote {len(combined_data)} pairs to {dataset_file_path}")
+
+    # 4. 动态注册数据集到 dataset_info.json
+    try:
+        with open(dataset_info_path, 'r', encoding='utf-8') as f:
+            dataset_info = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        dataset_info = {}
+
+    dataset_info[dataset_name] = {
+        "file_name": file_name,
+        "ranking": True,
+        "formatting": "sharegpt",
+        "columns": {
+            "messages": "conversations",
+            "chosen": "chosen",
+            "rejected": "rejected"
+        }
+    }
+    
+    with open(dataset_info_path, 'w', encoding='utf-8') as f:
+        json.dump(dataset_info, f, ensure_ascii=False, indent=4)
+    print(f"Registered '{dataset_name}' in {dataset_info_path}")
+
+    return dataset_name
+
+
+# ===== 外循环 (DPO 训练 - LoRA 方式) =====
+def run_outer_loop(base_model_path: str, round_idx: int):
+    """
+    执行 LLaMA-Factory LoRA DPO 训练与合并。
+    """
+    print(f"[Round {round_idx}] 🧠 外循环 DPO (LoRA) 训练中...")
+    
+    # 1. 准备和注册数据集
+    dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
+    
+    # 2. 动态配置 DPO 训练 YAML
+    lora_output_dir = f"saves/psp_round_{round_idx}" # LoRA 适配器保存路径
+    dynamic_train_yaml_path = f"outputs/round_{round_idx}/dpo_train_config.yaml"
+    
+    with open(DPO_TRAIN_TEMPLATE_YAML, 'r', encoding='utf-8') as f:
+        train_config = yaml.safe_load(f)
+        
+    train_config["model_name_or_path"] = base_model_path
+    train_config["dataset"] = dataset_name
+    train_config["output_dir"] = lora_output_dir
+    
+    with open(dynamic_train_yaml_path, 'w', encoding='utf-8') as f:
+        yaml.dump(train_config, f)
+        
+    # 3. 执行 DPO 训练命令
+    cmd_train = (f"FORCE_TORCHRUN=1 CUDA_VISIBLE_DEVICES={DPO_GPUS} "
+                 f"llamafactory-cli train {dynamic_train_yaml_path}")
+    print(f"[RUN] {cmd_train}")
+    subprocess.run(cmd_train, shell=True, check=True)
+    print(f"[Round {round_idx}] ✅ DPO 训练 (LoRA) 完成. 适配器保存在 {lora_output_dir}")
+
+    # 4. 动态配置模型合并 YAML
+    print(f"[Round {round_idx}] 🔄 合并模型中...")
+    final_merged_model_dir = f"models/psp_round_{round_idx}" # 最终完整模型路径
+    dynamic_merge_yaml_path = f"outputs/round_{round_idx}/merge_config.yaml"
+    
+    with open(DPO_MERGE_TEMPLATE_YAML, 'r', encoding='utf-8') as f:
+        merge_config = yaml.safe_load(f)
+        
+    merge_config["model_name_or_path"] = base_model_path
+    merge_config["adapter_name_or_path"] = lora_output_dir
+    merge_config["export_dir"] = final_merged_model_dir
+
+    with open(dynamic_merge_yaml_path, 'w', encoding='utf-8') as f:
+        yaml.dump(merge_config, f)
+
+    # 5. 执行模型合并命令
+    # (注意: 合并通常不需要 GPU，但如果需要，请在此处添加 CUDA_VISIBLE_DEVICES)
+    cmd_merge = f"llamafactory-cli export {dynamic_merge_yaml_path}"
+    print(f"[RUN] {cmd_merge}")
+    subprocess.run(cmd_merge, shell=True, check=True)
+    
+    print(f"[Round {round_idx}] ✅ 模型合并完成，新模型保存至 {final_merged_model_dir}")
+    return f"local::{final_merged_model_dir}"
+
 
 # ===== ClusterAgent =====
 def cluster_and_update_prompt(round_idx):
@@ -116,41 +234,59 @@ def cluster_and_update_prompt(round_idx):
     with open(f"outputs/round_{round_idx}/cluster_report.json", "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, indent=2)
 
-# ===== 主流程 =====
+# ===== 主流程 (修改) =====
 def main():
     state = load_state()
     total_rounds = CFG["default"]["rounds"]
+    
+    current_model_path = "" # (新) 跟踪当前模型的 *文件路径*
 
     # 首次运行时，部署初始模型
     if state["round"] == 0:
-        init_model_path = "/data/gaozhitao/modelhub/Qwen3-1.7B"
+        init_model_path = "/data/gaozhitao/modelhub/Qwen3-1.7B" # (硬编码的初始模型路径)
         restart_vllm_service(init_model_path, port=VLLM_PORT)
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}/generate"
+        
+        # (新) 将初始模型路径保存到 history 中，以便第一轮 DPO 使用
+        state["history"].append({
+            "round": 0,
+            "model": f"local::{init_model_path}", # 保存初始模型的路径
+            "timestamp": datetime.now().isoformat()
+        })
+        current_model_path = init_model_path # (新) 设置当前路径
         save_state(state)
+    else:
+        # (新) 如果不是首次运行，从 history 加载最新的模型路径
+        current_model_path = state["history"][-1]["model"].replace("local::", "")
 
     for r in range(state["round"] + 1, total_rounds + 1):
-        cur_model = state["current_model"]
-        print(f"\n===== 🌍 Round {r} 启动 (当前模型: {cur_model}) =====")
+        cur_model_endpoint = state["current_model"] # (这是 vLLM 的 http 地址)
+        print(f"\n===== 🌍 Round {r} 启动 (当前模型: {cur_model_endpoint}) =====")
+        print(f"本轮 DPO 训练将基于模型路径: {current_model_path}")
 
-        # 内循环
-        run_inner_loop(cur_model, r)
+
+        # 内循环 (使用 vLLM endpoint)
+        run_inner_loop(cur_model_endpoint, r)
 
         # 聚类分析与 prompt 更新
         cluster_and_update_prompt(r)
 
-        # 外循环训练
-        new_model_local = run_outer_loop(cur_model, r)
+        # 外循环训练 (使用 base_model_path)
+        new_model_local = run_outer_loop(current_model_path, r)
 
         # 重新部署 vLLM
         new_model_path = new_model_local.replace("local::", "")
         restart_vllm_service(new_model_path, port=VLLM_PORT)
 
+        # (新) 更新 current_model_path 以便下一轮 DPO 使用
+        current_model_path = new_model_path 
+        
         # 更新状态
         state["round"] = r
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}/generate"
         state["history"].append({
             "round": r,
-            "model": new_model_local,
+            "model": new_model_local, # (这里保存的是 local::/path/to/new/model)
             "timestamp": datetime.now().isoformat()
         })
         save_state(state)

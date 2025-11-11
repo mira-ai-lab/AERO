@@ -2,10 +2,15 @@ default:
   initial_model: "http::http://localhost:8000/generate"
   rounds: 5
   questions_per_round: 20
-  dpo_train_cmd_template: >
-    llamafactory dpo --model-name {model} --train-file dpo_data/combined_dpo.jsonl
-    --output-dir {out_dir} --epochs 3 --batch-size 8
+
+  # ----- DPO (LoRA) 配置 -----
+  llama_factory_dir: "LLaMA-Factory" # LLaMA-Factory 目录的相对路径
+  dpo_gpus: "4,5"       # 用于 DPO 训练的 GPUs
+  dpo_train_template_yaml: "examples/train_lora/qwen3_lora_dpo.yaml" # DPO 训练 YAML 模板
+  dpo_merge_template_yaml: "examples/merge_lora/qwen3_lora_dpo.yaml" # 合并 YAML 模板
+  # ---------------------------------
+    
   cluster:
     n_clusters: 8
     entropy_threshold: 1.2
-  openai_model_for_critic: "gpt-4"
+  openai_model_for_critic: "gpt-4.1"
