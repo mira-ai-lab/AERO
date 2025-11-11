@@ -37,12 +37,15 @@ class ClusterAgent:
             }
         return {"cluster_info": res, "suggestion": suggestion}
 
+    # cluster/cluster_agent.py (建议修改)
     def apply_suggestion_to_prompt(self, suggestion, prompt_path="synth/prompt_template.txt"):
-        if not suggestion:
+        if not suggestion or not suggestion.get("prompt_suggestion"): # 检查 suggestion 是否有效
             return
         text = read_text(prompt_path)
-        # 简单替换 focus 字段
-        new_focus = "电磁/热学/多步推导"
+        
+        # 使用 analyze_and_suggest 方法中生成的动态 suggestion
+        new_focus = suggestion["prompt_suggestion"] 
+        
         new_text = text.replace("{focus}", new_focus)
         write_text(prompt_path, new_text)
         return new_text
