@@ -82,7 +82,7 @@ def run_inner_loop(current_model, round_idx):
     env = os.environ.copy()
     env["CURRENT_MODEL"] = current_model
     cmd = [
-        "python3", "synth/inner_loop.py",
+        "python3", "-m", "synth.inner_loop",  # Run 'synth.inner_loop' as a module
         "--out_dir", out_dir,
         "--n_questions", str(CFG["default"]["questions_per_round"]),
         "--model_spec", current_model

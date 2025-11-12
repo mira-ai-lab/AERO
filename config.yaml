@@ -1,5 +1,5 @@
 default:
-  initial_model: "http::http://localhost:8000/generate"
+  initial_model: "http://localhost:8000/generate"
   rounds: 5
   questions_per_round: 20
 
