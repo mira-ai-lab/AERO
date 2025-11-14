@@ -1,11 +1,6 @@
 {
-  "round": 0,
+  "round": 1,
   "current_model": "http::http://localhost:8001",
   "history": [
-    {
-      "round": 0,
-      "model": "local::/data/gaozhitao/modelhub/Qwen3-1.7B",
-      "timestamp": "2025-11-12T17:45:10.051362"
-    }
   ]
 }

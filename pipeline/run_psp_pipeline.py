@@ -234,7 +234,7 @@ def run_outer_loop(base_model_path: str, round_idx: int):
         yaml.dump(merge_config, f)
 
     # 5. 执行模型合并命令
-    cmd_merge = f"llamafactory-cli export {dynamic_merge_yaml_path}"
+    cmd_merge = f"CUDA_VISIBLE_DEVICES={DPO_GPUS} llamafactory-cli export {dynamic_merge_yaml_path}"
     print(f"[RUN] {cmd_merge}")
     subprocess.run(cmd_merge, shell=True, check=True)
     
