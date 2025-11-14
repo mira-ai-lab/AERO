@@ -1,11 +1,11 @@
 default:
-  initial_model: "http://localhost:8000/generate"
+  initial_model: "http::http://localhost:8001"
   rounds: 5
-  questions_per_round: 20
+  questions_per_round: 5
 
   # ----- DPO (LoRA) 配置 -----
   llama_factory_dir: "LLaMA-Factory" # LLaMA-Factory 目录的相对路径
-  dpo_gpus: "4,5"       # 用于 DPO 训练的 GPUs
+  dpo_gpus: "6,7"       # 用于 DPO 训练的 GPUs
   dpo_train_template_yaml: "examples/train_lora/qwen3_lora_dpo.yaml" # DPO 训练 YAML 模板
   dpo_merge_template_yaml: "examples/merge_lora/qwen3_lora_dpo.yaml" # 合并 YAML 模板
   # ---------------------------------

@@ -15,7 +15,7 @@ from utils.io import read_jsonl
 # ===== 配置加载 =====
 CFG = yaml.safe_load(open("config.yaml"))
 STATE_FILE = "pipeline/pipeline_state.json"
-VLLM_PORT = 8000
+VLLM_PORT = 8001
 # LLaMA-Factory 相关配置
 LLAMA_FACTORY_DIR = CFG["default"]["llama_factory_dir"]
 DPO_GPUS = CFG["default"]["dpo_gpus"]
@@ -50,29 +50,54 @@ def restart_vllm_service(model_path: str, port: int = 8000):
 
     # 2. 启动新模型
     # (确保这里的 GPU 设置不会与 DPO 训练冲突，或者按需修改)
-    vllm_gpus = "4,5" # 示例：vLLM 使用 0,1
+    vllm_gpus = "6,7" # 示例：vLLM 使用 0,1
     tensor_parallel_size = 2
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} "
+           f"--served-model-name psp_model " 
            f"> vllm_round.log 2>&1 &")
     subprocess.run(cmd, shell=True)
     print(f"[vLLM] 启动命令：{cmd}")
 
     # 3. 等待启动
     ready = False
+    health_url = f"http://localhost:{port}/health"
+    print(f"[vLLM] 正在等待服务启动 (GET {health_url})...")
+
     for i in range(40):
         try:
-            r = requests.post(f"http://localhost:{port}/generate",
-                              json={"prompt": "ping"}, timeout=2)
+            # 使用 GET 请求访问 vLLM 的 /health 端点
+            r = requests.get(health_url, timeout=3)
             if r.status_code == 200:
                 ready = True
                 break
-        except Exception:
+            else:
+                print(f"[vLLM] ... (状态: {r.status_code})")
+                time.sleep(3)
+        except requests.exceptions.ConnectionError:
+            print("[vLLM] ... (连接被拒绝，vLLM 尚未启动)")
             time.sleep(3)
+        except Exception as e:
+            print(f"[vLLM] ... (发生错误: {e})")
+            time.sleep(3)
+
     if ready:
-        print(f"[vLLM] ✅ 新模型已上线：http://localhost:{port}/generate\n")
+        print(f"[vLLM] ✅ 新模型已上线：http://localhost:{port}\n")
     else:
-        print(f"[vLLM] ⚠️ 超时：请检查 vLLM 是否正常启动。\n")
+        print(f"[vLLM] ⚠️ 超时：请检查 vLLM 是否正常启动 (查看 vllm_round.log)。\n")
+        # [重要] 抛出异常以停止流水线
+        raise RuntimeError("vLLM service failed to start.")
+
+def stop_vllm_service(port: int = 8000):
+    """
+    显式停止 vLLM 服务以释放 GPU 内存。
+    """
+    print(f"\n[vLLM] 🛑 停止 vLLM 服务 (Port: {port}) 以释放 GPU 资源...")
+    # 1. 停止进程
+    subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
+    # 给予一些时间确保进程完全退出
+    time.sleep(5) 
+    print(f"[vLLM] ✅ 服务已停止。")
 
 # ===== 内循环 =====
 def run_inner_loop(current_model, round_idx):
@@ -160,18 +185,28 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     print(f"[Round {round_idx}] 🧠 外循环 DPO (LoRA) 训练中...")
     
     # 1. 准备和注册数据集
-    dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
+    # dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
+    # ===== [调试修改] =====
+    # 1. (注释掉) 准备和注册动态数据集
+    # print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
+    # dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
+    
+    # 1. (新) 使用你已在 dataset_info.json 中注册的固定数据集名称
+    dataset_name = "debug_dpo_data" 
+    print(f"⚠️ [DEBUG] 正在使用固定的数据集: {dataset_name}")
+    # =====================
     
     # 2. 动态配置 DPO 训练 YAML
     lora_output_dir = f"saves/psp_round_{round_idx}" # LoRA 适配器保存路径
     dynamic_train_yaml_path = f"outputs/round_{round_idx}/dpo_train_config.yaml"
-    
     with open(DPO_TRAIN_TEMPLATE_YAML, 'r', encoding='utf-8') as f:
         train_config = yaml.safe_load(f)
         
     train_config["model_name_or_path"] = base_model_path
     train_config["dataset"] = dataset_name
     train_config["output_dir"] = lora_output_dir
+
+    train_config["dataset_dir"] = os.path.join(LLAMA_FACTORY_DIR, "data")
     
     with open(dynamic_train_yaml_path, 'w', encoding='utf-8') as f:
         yaml.dump(train_config, f)
@@ -199,7 +234,6 @@ def run_outer_loop(base_model_path: str, round_idx: int):
         yaml.dump(merge_config, f)
 
     # 5. 执行模型合并命令
-    # (注意: 合并通常不需要 GPU，但如果需要，请在此处添加 CUDA_VISIBLE_DEVICES)
     cmd_merge = f"llamafactory-cli export {dynamic_merge_yaml_path}"
     print(f"[RUN] {cmd_merge}")
     subprocess.run(cmd_merge, shell=True, check=True)
@@ -245,7 +279,7 @@ def main():
     if state["round"] == 0:
         init_model_path = "/data/gaozhitao/modelhub/Qwen3-1.7B" # (硬编码的初始模型路径)
         restart_vllm_service(init_model_path, port=VLLM_PORT)
-        state["current_model"] = f"http::http://localhost:{VLLM_PORT}/generate"
+        state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         
         # (新) 将初始模型路径保存到 history 中，以便第一轮 DPO 使用
         state["history"].append({
@@ -269,7 +303,13 @@ def main():
         run_inner_loop(cur_model_endpoint, r)
 
         # 聚类分析与 prompt 更新
-        cluster_and_update_prompt(r)
+        # cluster_and_update_prompt(r)
+
+        # ===== [新步骤] 停止 vLLM 以释放 GPU =====
+        print(f"[Round {r}] 释放 GPU：准备停止 vLLM 服务...")
+        stop_vllm_service(port=VLLM_PORT)
+        print(f"[Round {r}] GPU 已释放，准备 DPO 训练...")
+        # =========================================
 
         # 外循环训练 (使用 base_model_path)
         new_model_local = run_outer_loop(current_model_path, r)
@@ -283,7 +323,7 @@ def main():
         
         # 更新状态
         state["round"] = r
-        state["current_model"] = f"http::http://localhost:{VLLM_PORT}/generate"
+        state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         state["history"].append({
             "round": r,
             "model": new_model_local, # (这里保存的是 local::/path/to/new/model)

@@ -1,21 +1,11 @@
 {
   "round": 0,
-  "current_model": "http::http://localhost:8000/generate",
+  "current_model": "http::http://localhost:8001",
   "history": [
     {
       "round": 0,
       "model": "local::/data/gaozhitao/modelhub/Qwen3-1.7B",
-      "timestamp": "2025-11-11T17:04:29.867228"
-    },
-    {
-      "round": 0,
-      "model": "local::/data/gaozhitao/modelhub/Qwen3-1.7B",
-      "timestamp": "2025-11-11T17:06:33.878574"
-    },
-    {
-      "round": 0,
-      "model": "local::/data/gaozhitao/modelhub/Qwen3-1.7B",
-      "timestamp": "2025-11-12T14:04:14.965597"
+      "timestamp": "2025-11-12T17:45:10.051362"
     }
   ]
 }

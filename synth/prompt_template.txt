@@ -1,7 +1,6 @@
-# prompt_template.txt (可被 ClusterAgent 更新)
 请基于大学物理（力学/电磁/热学/光学）生成一道中等到较难的问答题，要求：
 1) 给出题目背景（1-2句），并标注知识点；
 2) 题目需要包含计算或推导步骤，便于数值验证；
 3) 语言：中文（可改为英文）
-4) 优先考虑：{focus}   # cluster agent 可替换 focus 增强探索性
-请以 JSON 输出：{"question":"...", "meta":{"topic":"...","difficulty":"..."}}
+4) 优先考虑：{focus}
+请你直接给出题目，不要输出其他冗余内容。 /no_think

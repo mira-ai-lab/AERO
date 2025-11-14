@@ -45,11 +45,38 @@ def generate_from_transformers(model_spec: str, prompt: str, max_tokens=512, tem
         return out[len(prompt):].strip()
     return out.strip()
 
-def generate_from_http(url: str, prompt: str, max_tokens=512, temperature=0.2):
-    resp = requests.post(url, json={"prompt": prompt, "max_tokens": max_tokens, "temperature": temperature}, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("text") or data.get("result") or data.get("output") or ""
+def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
+    # url 应该是 vLLM 的基础 URL，例如 http://localhost:8000
+    # 我们将附加 /v1/chat/completions
+    
+    # 确保 URL 基础正确
+    if url.endswith("/generate"):
+        base_url = url.replace("/generate", "")
+    else:
+        base_url = url
+        
+    completion_url = f"{base_url.rstrip('/')}/v1/chat/completions"
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": "psp_model", 
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": float(temperature)
+    }
+
+    try:
+        resp = requests.post(completion_url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        # 解析 OpenAI 格式的响应
+        return data["choices"][0]["message"]["content"].strip()
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling vLLM API at {completion_url}: {e}")
+        # 返回空字符串或重新引发异常，以匹配原始逻辑
+        raise e
 
 def generate(model_spec: str, prompt: str, max_tokens=512, temperature=0.2):
     if model_spec.startswith("hf::") or model_spec.startswith("local::"):
