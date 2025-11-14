@@ -2,3 +2,5 @@ __pycache__/
 *.log
 dpo_data/
 outputs/
+models/
+saves/
