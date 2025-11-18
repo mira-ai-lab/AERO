@@ -277,7 +277,7 @@ def main():
 
     # 首次运行时，部署初始模型
     if state["round"] == 0:
-        init_model_path = "/data/gaozhitao/modelhub/Qwen3-1.7B" # (硬编码的初始模型路径)
+        init_model_path = "/data/gaozhitao/modelhub/Qwen2.5-3B-Instruct" # (硬编码的初始模型路径)
         restart_vllm_service(init_model_path, port=VLLM_PORT)
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         
