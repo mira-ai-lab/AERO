@@ -1,0 +1,31 @@
+{
+  "round": 4,
+  "current_model": "http::http://localhost:8001",
+  "history": [
+    {
+      "round": 0,
+      "model": "local::/data/gaozhitao/modelhub/Qwen2.5-3B-Instruct",
+      "timestamp": "2025-11-18T14:44:15.054327"
+    },
+    {
+      "round": 1,
+      "model": "local::models/psp_round_1",
+      "timestamp": "2025-11-18T14:58:17.694033"
+    },
+    {
+      "round": 2,
+      "model": "local::models/psp_round_2",
+      "timestamp": "2025-11-18T15:12:24.070140"
+    },
+    {
+      "round": 3,
+      "model": "local::models/psp_round_3",
+      "timestamp": "2025-11-18T15:26:15.117469"
+    },
+    {
+      "round": 4,
+      "model": "local::models/psp_round_4",
+      "timestamp": "2025-11-18T15:41:42.878218"
+    }
+  ]
+}

@@ -77,7 +77,7 @@ def oracle_check_with_sympy(expr: str):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-def verify_answer(answer: str, question: str, openai_model="gpt-4"):
+def verify_answer(answer: str, question: str, openai_model="gpt-4.1"):
     """
     1. 完全依赖 self_check_llm 的结构化输出来判断。
     2. 移除原有的 SymPy 检查，因为它已被新的 Prompt 逻辑取代。

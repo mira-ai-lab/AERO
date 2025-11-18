@@ -6,7 +6,7 @@ Physics Self-Play (PSP) pipeline
 每轮训练完毕后自动重新部署 vLLM 加载新模型。
 """
 
-import os, json, yaml, subprocess, time, requests
+import os, json, yaml, subprocess, time, requests, shutil
 from datetime import datetime
 from cluster.cluster_agent import ClusterAgent
 # 导入我们需要的 utils.io 中的函数
@@ -181,19 +181,18 @@ def prepare_dpo_data_for_llamafactory(round_idx, llama_factory_dir):
 def run_outer_loop(base_model_path: str, round_idx: int):
     """
     执行 LLaMA-Factory LoRA DPO 训练与合并。
+    训练完成后，删除 LoRA 适配器和检查点，只保留最终合并的模型。
     """
     print(f"[Round {round_idx}] 🧠 外循环 DPO (LoRA) 训练中...")
     
-    # 1. 准备和注册数据集
-    # dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
     # ===== [调试修改] =====
     # 1. (注释掉) 准备和注册动态数据集
-    # print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
-    # dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
+    print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
+    dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
     
-    # 1. (新) 使用你已在 dataset_info.json 中注册的固定数据集名称
-    dataset_name = "debug_dpo_data" 
-    print(f"⚠️ [DEBUG] 正在使用固定的数据集: {dataset_name}")
+    # # 1. (新) 使用你已在 dataset_info.json 中注册的固定数据集名称
+    # dataset_name = "debug_dpo_data" 
+    # print(f"⚠️ [DEBUG] 正在使用固定的数据集: {dataset_name}")
     # =====================
     
     # 2. 动态配置 DPO 训练 YAML
@@ -239,6 +238,18 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     subprocess.run(cmd_merge, shell=True, check=True)
     
     print(f"[Round {round_idx}] ✅ 模型合并完成，新模型保存至 {final_merged_model_dir}")
+
+    # =====================================================
+    # 11/18 清理 LoRA 权重和检查点
+    # =====================================================
+    if os.path.exists(lora_output_dir):
+        print(f"[Cleanup] 🗑️ 正在删除 LoRA 中间产物 (节省空间): {lora_output_dir}")
+        try:
+            shutil.rmtree(lora_output_dir)
+            print(f"[Cleanup] ✅ 已删除 {lora_output_dir}")
+        except Exception as e:
+            print(f"[Cleanup] ⚠️ 删除失败: {e}")
+    # =====================================================
     return f"local::{final_merged_model_dir}"
 
 
@@ -277,7 +288,7 @@ def main():
 
     # 首次运行时，部署初始模型
     if state["round"] == 0:
-        init_model_path = "/data/gaozhitao/modelhub/Qwen2.5-3B-Instruct" # (硬编码的初始模型路径)
+        init_model_path = "/data/gaozhitao/modelhub/Qwen2.5-7B-Instruct" # (硬编码的初始模型路径)
         restart_vllm_service(init_model_path, port=VLLM_PORT)
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         

@@ -47,7 +47,7 @@ def generate_from_transformers(model_spec: str, prompt: str, max_tokens=512, tem
 
 def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
     # url 应该是 vLLM 的基础 URL，例如 http://localhost:8000
-    # 我们将附加 /v1/chat/completions
+    # 附加 /v1/chat/completions
     
     # 确保 URL 基础正确
     if url.endswith("/generate"):

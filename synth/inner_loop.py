@@ -5,7 +5,7 @@ from synth.answerer import answer_question, self_refine
 from synth.critic import verify_answer
 from utils.io import write_jsonl, read_text, write_text
 
-def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::/path/to/model", max_refine=2):
+def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::/path/to/model", max_refine=3):
     os.makedirs(out_dir, exist_ok=True)
     qs = generate_questions(n_questions, model_spec=model_spec)
     results = []

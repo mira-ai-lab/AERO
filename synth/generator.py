@@ -10,7 +10,7 @@ def load_prompt_template():
         raise FileNotFoundError(f"{PROMPT_FILE} not found.")
     return read_text(PROMPT_FILE)
 
-def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=512):
+def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024):
     prompt_template = load_prompt_template()
     questions = []
     for i in range(n):

@@ -9,5 +9,5 @@ def answer_question(question: str, model_spec: str, max_tokens=1024, temp=0.2):
 def self_refine(question: str, current_answer: str, critic_feedback: str, model_spec: str, max_tokens=1024):
     prompt = (SYSTEM_PREFIX + question + "\n\n当前解答：\n" + current_answer +
               "\n\n批评家反馈：\n" + critic_feedback +
-              "\n\n请基于上述反馈修正并给出最终、可验证的解答（保留步骤）。  ")
+              "\n\n请基于上述反馈修正并给出最终、可验证的解答（保留步骤）。直接开始解答，不要有其他内容。")
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=0.1)
