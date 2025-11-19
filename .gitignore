@@ -4,3 +4,4 @@ dpo_data/
 outputs/
 models/
 saves/
+pipeline/pipeline_state.json
