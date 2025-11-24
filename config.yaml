@@ -3,6 +3,7 @@ default:
   initial_model: "http::http://localhost:8001"
   rounds: 10
   questions_per_round: 100
+  max_refine: 3
 
   llama_factory_dir: "LLaMA-Factory"
   dpo_gpus: "6,7"
