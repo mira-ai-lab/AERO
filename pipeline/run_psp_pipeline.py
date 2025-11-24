@@ -110,7 +110,8 @@ def run_inner_loop(current_model, round_idx):
         "--out_dir", out_dir,
         "--n_questions", str(CFG["default"]["questions_per_round"]),
         "--model_spec", current_model,
-        "--round", str(round_idx) # [新增] 传递轮次信息
+        "--round", str(round_idx), # 传递轮次信息，用于wram up
+        "--max_refine", str(CFG["default"]["max_refine"])
     ]
     subprocess.run(cmd, check=True, env=env)
     
