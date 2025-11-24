@@ -1,16 +1,19 @@
+# config.yaml
 default:
   initial_model: "http::http://localhost:8001"
   rounds: 10
-  questions_per_round: 1000
+  questions_per_round: 100
 
-  # ----- DPO (LoRA) 配置 -----
-  llama_factory_dir: "LLaMA-Factory" # LLaMA-Factory 目录的相对路径
-  dpo_gpus: "6,7"       # 用于 DPO 训练的 GPUs
-  dpo_train_template_yaml: "examples/train_lora/qwen2_5_lora_dpo.yaml" # DPO 训练 YAML 模板
-  dpo_merge_template_yaml: "examples/merge_lora/qwen2_5_lora_dpo.yaml" # 合并 YAML 模板
-  # ---------------------------------
+  llama_factory_dir: "LLaMA-Factory"
+  dpo_gpus: "6,7"
+  dpo_train_template_yaml: "examples/train_lora/qwen2_5_lora_dpo.yaml"
+  dpo_merge_template_yaml: "examples/merge_lora/qwen2_5_lora_dpo.yaml"
     
   cluster:
     n_clusters: 8
     entropy_threshold: 1.2
-  openai_model_for_critic: "gpt-4.1"
+  
+  critic:
+    openai_model: "gpt-4.1"      # Oracle 模型名称
+    warmup_rounds: 3             # 前 N 轮使用 Oracle，同时收集数据
+    use_self_critic: true        # warmup 结束后，是否切换为模型自己做 Critic

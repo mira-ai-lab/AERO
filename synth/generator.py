@@ -1,7 +1,7 @@
 # synth/generator.py
 import os, json
 from local_model.local_model_interface import generate
-from utils.io import read_text, write_text
+from utils.io import read_text
 
 PROMPT_FILE = "synth/prompt_template.txt"
 
@@ -14,12 +14,19 @@ def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024
     prompt_template = load_prompt_template()
     questions = []
     for i in range(n):
-        prompt = prompt_template.replace("{focus}", "综合") + f"\n# id:{i}\n"
-        out = generate(model_spec, prompt, max_tokens=max_tokens, temperature=temperature)
+        prompt_text = prompt_template.replace("{focus}", "综合") + f"\n# id:{i}\n"
+        out = generate(model_spec, prompt_text, max_tokens=max_tokens, temperature=temperature)
         try:
             data = json.loads(out.strip())
-            questions.append({"question": data.get("question", out), "meta": data.get("meta", {})})
+            questions.append({
+                "question": data.get("question", out), 
+                "meta": data.get("meta", {}),
+                "prompt": prompt_text # [新增] 保存 Prompt
+            })
         except Exception:
-            # 如果返回不能解析为 JSON，直接把文本作为 question 字段
-            questions.append({"question": out.strip(), "meta": {}})
+            questions.append({
+                "question": out.strip(), 
+                "meta": {},
+                "prompt": prompt_text # [新增] 保存 Prompt
+            })
     return questions

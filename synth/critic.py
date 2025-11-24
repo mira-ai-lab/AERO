@@ -1,19 +1,16 @@
-import os, re, json
-import sympy as sp
+# synth/critic.py
+import os, json
 from openai import OpenAI
-base_url = "https://api.pumpkinaigc.online/v1"
+from local_model.local_model_interface import generate
 
+# 配置 OpenAI Client (Oracle)
+base_url = "https://api.pumpkinaigc.online/v1"
 client = OpenAI(
     api_key="sk-pew2UshHFpIXk3afA2B1C3A9F4A54250AfAc109c23D728B5",
     base_url=base_url
 )
 
-def self_check_llm(answer: str, question: str, openai_model="gpt-4.1"):
-    """
-    1. 强制 LLM 扮演 Oracle，先自己解题，再对比。
-    2. 结构化输出 critical_errors (事实错误) 和 suggestions (建议)。
-    """
-    prompt = f"""你是一个顶级的物理问题批评家。你的任务是严格验证一个解答是否正确。
+CRITIC_SYSTEM_PROMPT = """你是一个顶级的物理问题批评家。你的任务是严格验证一个解答是否正确。
 
 题目：
 {question}
@@ -36,71 +33,60 @@ JSON 格式：
 
 请直接输出 JSON，不要包含其他任何文本。
 """
-    
+
+def _call_openai(prompt, model):
     try:
         resp = client.chat.completions.create(
-            model=openai_model,
+            model=model,
             messages=[{"role":"user","content":prompt}],
             temperature=0.0,
-            max_tokens=512,
+            max_tokens=1024,
         )
-        txt = resp.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[Critic Error] OpenAI API call failed: {e}")
-        return {"critical_errors": [f"API Error: {e}"], "suggestions": [], "confidence": 0.0}
+        return json.dumps({"critical_errors": [f"API Error: {e}"], "suggestions": [], "confidence": 0.0})
 
-    try:
-        return json.loads(txt)
-    except Exception:
-        return {"critical_errors": [f"JSON Parse Error: {txt}"], "suggestions": [], "confidence": 0.0}
+def _call_local(prompt, model_spec):
+    # 本地模型调用，temperature=0.0 保证确定性
+    return generate(model_spec, prompt, max_tokens=1024, temperature=0.0)
 
-# ========================================================================
-# [说明] 以下两个函数 (extract_numeric_expressions, oracle_check_with_sympy)
-# 在新的 verify_answer 逻辑中不再被调用，因为 LLM Critic 的职责已包含计算验证。
-# 保留它们以供将来可能的其他用途。
-# ========================================================================
-
-def extract_numeric_expressions(answer_text: str):
-    exprs = []
-    # 匹配 $...$ 或 simple numbers
-    for m in re.findall(r"\$(.+?)\$", answer_text, flags=re.S):
-        exprs.append(m.strip())
-    for m in re.findall(r"([-+]?\d+\.\d+|\d+)(?:\s*[a-zA-Z/%°μΩohm]*)", answer_text):
-        exprs.append(m)
-    return exprs
-
-def oracle_check_with_sympy(expr: str):
-    try:
-        parsed = sp.sympify(expr)
-        val = float(parsed.evalf())
-        return {"ok": True, "value": val}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-def verify_answer(answer: str, question: str, openai_model="gpt-4.1"):
+def verify_answer(answer: str, question: str, model_spec="gpt-4.1"):
     """
-    1. 完全依赖 self_check_llm 的结构化输出来判断。
-    2. 移除原有的 SymPy 检查，因为它已被新的 Prompt 逻辑取代。
-    3. "passed" 仅当 "critical_errors" 列表为空时才为 True。
+    执行一次 Critic 验证。
+    返回包含 passed 状态、建议、以及用于 DPO 的原始文本和 Prompt。
     """
+    # 1. 构建 Prompt
+    prompt = CRITIC_SYSTEM_PROMPT.format(question=question, answer=answer)
     
-    # 1. 调用改进后的 LLM Critic
-    sc = self_check_llm(answer, question, openai_model=openai_model)
+    # 2. 调用模型
+    # 简单的判断逻辑：如果是 openai model 或 gpt 开头，走 API；否则走本地
+    if model_spec.startswith("gpt") or model_spec == "openai" or "gpt-4" in model_spec:
+        raw_txt = _call_openai(prompt, model_spec)
+    else:
+        raw_txt = _call_local(prompt, model_spec)
+        
+    # 3. 解析 JSON
+    clean_txt = raw_txt.strip()
+    if clean_txt.startswith("```"):
+        import re
+        clean_txt = re.sub(r"^```(json)?", "", clean_txt).strip()
+        clean_txt = re.sub(r"```$", "", clean_txt).strip()
+
+    try:
+        sc = json.loads(clean_txt)
+    except Exception:
+        sc = {"critical_errors": [f"JSON Parse Error"], "suggestions": [], "confidence": 0.0}
     
     critical_errors = sc.get("critical_errors", [])
     suggestions = sc.get("suggestions", [])
-    
-    # 2. [新逻辑] 仅当没有严重错误时，才算通过
     passed = len(critical_errors) == 0
-    
-    # 3. 组合所有反馈，用于 inner_loop 中的 self_refine
-    #    (即使通过了，也可能包含 suggestions)
     all_issues = critical_errors + suggestions
 
-    # 4. 返回 inner_loop.py 所需的格式
-    #    "issues" 字段将用于 "self_refine" 的提示
     return {
         "passed": passed, 
         "issues": all_issues, 
-        "critic_details": sc # 存储完整的结构化报告以供分析
+        "critic_details": sc,
+        "raw_output": raw_txt, # [关键] 用于 DPO 的 Chosen/Rejected 内容
+        "prompt": prompt       # [关键] 用于 DPO 的 Input 内容
     }

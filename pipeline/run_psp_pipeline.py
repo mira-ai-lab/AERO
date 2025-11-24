@@ -49,9 +49,8 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
 
     # 2. 启动新模型
-    # (确保这里的 GPU 设置不会与 DPO 训练冲突，或者按需修改)
-    vllm_gpus = "6,7" # 示例：vLLM 使用 0,1
-    tensor_parallel_size = 2
+    vllm_gpus = "4,5,6,7" 
+    tensor_parallel_size = 4
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} "
            f"--served-model-name psp_model " 
@@ -107,10 +106,11 @@ def run_inner_loop(current_model, round_idx):
     env = os.environ.copy()
     env["CURRENT_MODEL"] = current_model
     cmd = [
-        "python3", "-m", "synth.inner_loop",  # Run 'synth.inner_loop' as a module
+        "python3", "-m", "synth.inner_loop",
         "--out_dir", out_dir,
         "--n_questions", str(CFG["default"]["questions_per_round"]),
-        "--model_spec", current_model
+        "--model_spec", current_model,
+        "--round", str(round_idx) # [新增] 传递轮次信息
     ]
     subprocess.run(cmd, check=True, env=env)
     
@@ -146,6 +146,10 @@ def prepare_dpo_data_for_llamafactory(round_idx, llama_factory_dir):
     if os.path.exists("dpo_data/questions_dpo.json"):
         with open("dpo_data/questions_dpo.json", 'r', encoding='utf-8') as f:
             combined_data.extend(json.load(f))
+    # [新增] Critic
+    if os.path.exists("dpo_data/critic_dpo.json"):
+        print(f"  - Loading Critic preference data...")
+        with open("dpo_data/critic_dpo.json", 'r') as f: combined_data.extend(json.load(f))
             
     # 3. 将合并后的数据写入 LLaMA-Factory/data 目录
     with open(dataset_file_path, 'w', encoding='utf-8') as f:
@@ -346,6 +350,9 @@ def main():
         print("============================================\n")
 
     print("🎯 全部轮次 PSP 训练完成。")
+    print(f"[Round {r}] 释放 GPU：准备停止 vLLM 服务...")
+    stop_vllm_service(port=VLLM_PORT)
+    print(f"[Round {r}] GPU 已释放，准备 DPO 训练...")
 
 if __name__ == "__main__":
     main()
