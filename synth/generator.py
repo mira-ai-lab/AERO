@@ -21,12 +21,12 @@ def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024
             questions.append({
                 "question": data.get("question", out), 
                 "meta": data.get("meta", {}),
-                "prompt": prompt_text # [新增] 保存 Prompt
+                "prompt": prompt_text
             })
         except Exception:
             questions.append({
                 "question": out.strip(), 
                 "meta": {},
-                "prompt": prompt_text # [新增] 保存 Prompt
+                "prompt": prompt_text
             })
     return questions
