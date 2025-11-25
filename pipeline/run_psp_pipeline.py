@@ -49,8 +49,8 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
 
     # 2. 启动新模型
-    vllm_gpus = "4,5,6,7" 
-    tensor_parallel_size = 4
+    vllm_gpus = "4,5" 
+    tensor_parallel_size = 2
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} "
            f"--served-model-name psp_model " 
@@ -63,7 +63,7 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     health_url = f"http://localhost:{port}/health"
     print(f"[vLLM] 正在等待服务启动 (GET {health_url})...")
 
-    for i in range(40):
+    for i in range(100):
         try:
             # 使用 GET 请求访问 vLLM 的 /health 端点
             r = requests.get(health_url, timeout=3)
@@ -72,13 +72,13 @@ def restart_vllm_service(model_path: str, port: int = 8000):
                 break
             else:
                 print(f"[vLLM] ... (状态: {r.status_code})")
-                time.sleep(3)
+                time.sleep(5)
         except requests.exceptions.ConnectionError:
             print("[vLLM] ... (连接被拒绝，vLLM 尚未启动)")
             time.sleep(3)
         except Exception as e:
             print(f"[vLLM] ... (发生错误: {e})")
-            time.sleep(3)
+            time.sleep(5)
 
     if ready:
         print(f"[vLLM] ✅ 新模型已上线：http://localhost:{port}\n")
@@ -103,27 +103,53 @@ def run_inner_loop(current_model, round_idx):
     print(f"[Round {round_idx}] 🚀 内循环启动（模型：{current_model}）")
     out_dir = f"outputs/round_{round_idx}"
     os.makedirs(out_dir, exist_ok=True)
-    env = os.environ.copy()
-    env["CURRENT_MODEL"] = current_model
-    cmd = [
-        "python3", "-m", "synth.inner_loop",
-        "--out_dir", out_dir,
-        "--n_questions", str(CFG["default"]["questions_per_round"]),
-        "--model_spec", current_model,
-        "--round", str(round_idx), # 传递轮次信息，用于wram up
-        "--max_refine", str(CFG["default"]["max_refine"])
-    ]
-    subprocess.run(cmd, check=True, env=env)
+
+    # [新增] 检查点逻辑：如果结果文件已存在，则跳过生成
+    marker_file = os.path.join(out_dir, "inner_results.jsonl")
+    run_generation = True
     
-    # (重要) 运行新修改的 make_dpo_pairs 脚本
-    # 它现在只转换数据为 .json 格式，不再合并
+    if os.path.exists(marker_file):
+        print(f"[Round {round_idx}] ⚠️ 检测到内循环数据已存在: {marker_file}")
+        print(f"[Round {round_idx}] ⏭️ 跳过数据生成阶段，直接恢复数据状态...")
+        run_generation = False
+        
+        # [重要] 恢复 dpo_data 现场
+        # 因为后续的 make_dpo_pairs 依赖 dpo_data 目录下的 .jsonl 文件
+        # 如果跳过生成，我们需要手动将本轮 outputs 里的文件复制过去
+        dpo_data_dir = "dpo_data"
+        os.makedirs(dpo_data_dir, exist_ok=True)
+        files_to_restore = ["answers_pairs.jsonl", "questions_pairs.jsonl", "critic_pairs.jsonl"]
+        
+        for fname in files_to_restore:
+            src = os.path.join(out_dir, fname)
+            dst = os.path.join(dpo_data_dir, fname)
+            if os.path.exists(src):
+                shutil.copy(src, dst)
+                print(f"  - 已将 {fname} 恢复至 {dpo_data_dir}")
+            else:
+                print(f"  - ⚠️ 未找到 {src}，可能该轮没有生成此类数据。")
+
+    if run_generation:
+        env = os.environ.copy()
+        env["CURRENT_MODEL"] = current_model
+        cmd = [
+            "python3", "-m", "synth.inner_loop",
+            "--out_dir", out_dir,
+            "--n_questions", str(CFG["default"]["questions_per_round"]),
+            "--model_spec", current_model,
+            "--round", str(round_idx) # [新增] 传递轮次信息
+        ]
+        subprocess.run(cmd, check=True, env=env)
+    
+    # (重要) 运行 make_dpo_pairs 脚本
+    # 无论是否跳过生成，都需要运行这一步，将 .jsonl 转换为 LLaMA-Factory 需要的 .json 格式
     cmd_dpo_convert = ["python3", "utils/make_dpo_pairs.py"]
     if os.name == 'posix':
         # 确保使用 -m 方式运行，以处理模块路径问题
         cmd_dpo_convert = ["python3", "-m", "utils.make_dpo_pairs"]
     subprocess.run(cmd_dpo_convert, check=True)
     
-    print(f"[Round {round_idx}] ✅ 内循环完成。\n")
+    print(f"[Round {round_idx}] ✅ 内循环准备完成。\n")
 
 
 # ===== DPO 数据集准备 (LLaMA-Factory) =====
