@@ -319,27 +319,40 @@ def main():
 
     # 首次运行时，部署初始模型
     if state["round"] == 0:
-        init_model_path = "/data/gaozhitao/modelhub/Qwen2.5-7B-Instruct" # (硬编码的初始模型路径)
+        init_model_path = "/data/gaozhitao/modelhub/Qwen2.5-7B-Instruct" # (建议改为从 config 读取)
         restart_vllm_service(init_model_path, port=VLLM_PORT)
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         
-        # (新) 将初始模型路径保存到 history 中，以便第一轮 DPO 使用
         state["history"].append({
             "round": 0,
-            "model": f"local::{init_model_path}", # 保存初始模型的路径
+            "model": f"local::{init_model_path}",
             "timestamp": datetime.now().isoformat()
         })
-        current_model_path = init_model_path # (新) 设置当前路径
+        current_model_path = init_model_path 
         save_state(state)
     else:
-        # (新) 如果不是首次运行，从 history 加载最新的模型路径
-        current_model_path = state["history"][-1]["model"].replace("local::", "")
+        # === [修复] 断点续训逻辑 ===
+        # 如果不是首次运行，从 history 加载最新的模型路径，并重新部署 vLLM
+        if not state["history"]:
+            raise ValueError("State shows round > 0 but history is empty!")
+            
+        last_model_record = state["history"][-1]
+        current_model_path = last_model_record["model"].replace("local::", "")
+        
+        print(f"⚠️ [Resume] 检测到中断状态 (Round {state['round']})。")
+        print(f"🔄 正在恢复部署上一轮的模型: {current_model_path}")
+        
+        # 这一步是关键：必须在进入循环前把服务拉起来
+        restart_vllm_service(current_model_path, port=VLLM_PORT)
+        
+        # 确保内存中的 state URL 是正确的
+        state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
+        # ===========================
 
     for r in range(state["round"] + 1, total_rounds + 1):
-        cur_model_endpoint = state["current_model"] # (这是 vLLM 的 http 地址)
+        cur_model_endpoint = state["current_model"] 
         print(f"\n===== 🌍 Round {r} 启动 (当前模型: {cur_model_endpoint}) =====")
         print(f"本轮 DPO 训练将基于模型路径: {current_model_path}")
-
 
         # 内循环 (使用 vLLM endpoint)
         run_inner_loop(cur_model_endpoint, r)
@@ -347,20 +360,19 @@ def main():
         # 聚类分析与 prompt 更新
         # cluster_and_update_prompt(r)
 
-        # ===== [新步骤] 停止 vLLM 以释放 GPU =====
+        # 停止 vLLM 以释放 GPU
         print(f"[Round {r}] 释放 GPU：准备停止 vLLM 服务...")
         stop_vllm_service(port=VLLM_PORT)
         print(f"[Round {r}] GPU 已释放，准备 DPO 训练...")
-        # =========================================
 
-        # 外循环训练 (使用 base_model_path)
+        # 外循环训练
         new_model_local = run_outer_loop(current_model_path, r)
 
         # 重新部署 vLLM
         new_model_path = new_model_local.replace("local::", "")
         restart_vllm_service(new_model_path, port=VLLM_PORT)
 
-        # (新) 更新 current_model_path 以便下一轮 DPO 使用
+        # 更新路径
         current_model_path = new_model_path 
         
         # 更新状态
@@ -368,7 +380,7 @@ def main():
         state["current_model"] = f"http::http://localhost:{VLLM_PORT}"
         state["history"].append({
             "round": r,
-            "model": new_model_local, # (这里保存的是 local::/path/to/new/model)
+            "model": new_model_local,
             "timestamp": datetime.now().isoformat()
         })
         save_state(state)
@@ -377,9 +389,7 @@ def main():
         print("============================================\n")
 
     print("🎯 全部轮次 PSP 训练完成。")
-    print(f"[Round {r}] 释放 GPU：准备停止 vLLM 服务...")
+    # 训练结束后也可以选择停止服务
     stop_vllm_service(port=VLLM_PORT)
-    print(f"[Round {r}] GPU 已释放，准备 DPO 训练...")
-
 if __name__ == "__main__":
     main()
