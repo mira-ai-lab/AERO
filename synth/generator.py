@@ -14,7 +14,8 @@ def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024
     prompt_template = load_prompt_template()
     questions = []
     for i in range(n):
-        prompt_text = prompt_template.replace("{focus}", "综合") + f"\n# id:{i}\n"
+        # prompt_text = prompt_template.replace("{focus}", "综合") + f"\n# id:{i}\n"
+        prompt_text = prompt_template
         out = generate(model_spec, prompt_text, max_tokens=max_tokens, temperature=temperature)
         try:
             data = json.loads(out.strip())

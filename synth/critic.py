@@ -6,32 +6,53 @@ from local_model.local_model_interface import generate
 # 配置 OpenAI Client (Oracle)
 base_url = "https://api.pumpkinaigc.online/v1"
 client = OpenAI(
-    api_key="sk-pew2UshHFpIXk3afA2B1C3A9F4A54250AfAc109c23D728B5",
+    api_key="sk-if3ocGdwB3VI97us82181fCf6884490a983c6e4e5c47C656",
     base_url=base_url
 )
 
-CRITIC_SYSTEM_PROMPT = """你是一个顶级的物理问题批评家。你的任务是严格验证一个解答是否正确。
+CRITIC_SYSTEM_PROMPT = """# Role
+You are a Physics Competition Judge and Verification Engine with the highest level of academic rigor. Your core competency lies in detecting logical flaws, calculation errors, and dimensional inconsistencies in physics derivations.
 
-题目：
+# Task
+Please strictly verify the correctness of the provided [Problem] and [Solution under Evaluation].
+
+# Workflow (Must be strictly followed)
+1.  **Independent Derivation (Implicit Step)**: Before generating any output, you must independently and completely solve the problem in the background to establish an absolute "Ground Truth." Ensure your derivation covers force analysis, theorem application, calculus operations, and dimensional analysis.
+2.  **Discrepancy Analysis**: Compare every step, formula citation, intermediate value, and final result of the [Solution under Evaluation] against your "Ground Truth" line by line.
+3.  **Verdict Report**: Output the review report strictly in JSON format.
+
+# Output Fields Definition
+-   **critical_errors** (List[str]): Contains only **hard errors** that lead to an incorrect answer or a collapse of physical logic.
+    -   Includes: incorrect application of principles, unmet conditions for formulas, mathematical calculation errors, unit/dimensional errors, or incorrect substitution of initial values.
+    -   If the solution is factually correct, this list must be empty `[]`.
+-   **suggestions** (List[str]): Contains **soft suggestions** for optimizing the solution process.
+    -   Includes: excessive logical jumps, non-standard notation, redundant steps, or the existence of a more elegant solution.
+-   **confidence** (float): A value between 0.0 and 1.0, representing your confidence level in the verdict (specifically regarding the presence or absence of "critical_errors").
+
+# JSON Output Example
+{
+  "critical_errors": [
+    "...",
+    "..."
+  ],
+  "suggestions": [
+    "...",
+    "..."
+  ],
+  "confidence": 0.98
+}
+
+# Format Constraints
+-   The output must be valid JSON format.
+-   **Strictly NO** Markdown code block markers (e.g., ```json).
+-   **Strictly NO** preambles, postscripts, or thinking processes outside the JSON object.
+
+# Input Data
+Problem:
 {question}
 
-待评估的解答：
+Solution under Evaluation:
 {answer}
-
-请遵循以下步骤：
-1.  **[内部思考]** 首先，请在内部（不要在最终输出中展示）完整地解答一遍这个问题，得到一个标准答案（包括关键步骤、公式和最终数值与单位）。
-2.  **[对比验证]** 然后，将“待评估的解答”与你的“标准答案”进行严格对比。
-3.  **[输出报告]** 最后，以 JSON 格式输出你的报告。
-
-你的报告必须包含三个字段：
-- "critical_errors": 列表。只包含**事实性错误**，例如：错误的公式、错误的数值计算、错误的单位、与题目条件不符的推导。如果此列表为空，代表解答在事实上是正确的。
-- "suggestions": 列表。包含非事实性的改进建议，例如：逻辑跳跃、步骤不够清晰、格式问题。
-- "confidence": 浮点数（0.0到1.0），表示你对“critical_errors”列表准确性的信心。
-
-JSON 格式：
-{{"critical_errors": ["..."], "suggestions": ["..."], "confidence": 0.0}}
-
-请直接输出 JSON，不要包含其他任何文本。
 """
 
 def _call_openai(prompt, model):
