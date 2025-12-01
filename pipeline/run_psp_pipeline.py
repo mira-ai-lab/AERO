@@ -25,7 +25,7 @@ os.makedirs(EXP_ROOT, exist_ok=True)
 
 # ===== 配置加载 =====
 CFG = yaml.safe_load(open("config.yaml"))
-STATE_FILE = "pipeline/pipeline_state.json"
+STATE_FILE = os.path.join(EXP_ROOT, "pipeline_state.json")
 VLLM_PORT = args.port
 # LLaMA-Factory 相关配置
 LLAMA_FACTORY_DIR = CFG["default"]["llama_factory_dir"]
@@ -65,7 +65,7 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
            f"--served-model-name psp_model " 
-           f"> vllm_round.log 2>&1 &")
+           f"> vllm_{EXP_NAME}.log 2>&1 &")
     subprocess.run(cmd, shell=True)
     print(f"[vLLM] 启动命令：{cmd}")
 
