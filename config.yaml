@@ -1,7 +1,7 @@
 # config.yaml
 default:
   initial_model: "http::http://localhost:8001"
-  init_model_path: "/data/gaozhitao/modelhub/Qwen2.5-7B-Instruct"
+  init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
   rounds: 10
   questions_per_round: 100
   max_refine: 3
