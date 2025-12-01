@@ -4,6 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed # 新增
 from local_model.local_model_interface import generate
 from utils.io import read_text
+from tqdm import tqdm
 
 PROMPT_FILE = "synth/prompt_template.txt"
 
@@ -13,7 +14,7 @@ def load_prompt_template():
     return read_text(PROMPT_FILE)
 
 # 新增 max_workers 参数，默认为 10
-def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024, max_workers=10):
+def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024, max_workers=30):
     prompt_template = load_prompt_template()
     questions = []
     
@@ -44,10 +45,11 @@ def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024
         # 提交 n 个任务
         futures = [executor.submit(_generate_single, i) for i in range(n)]
         
-        for future in as_completed(futures):
+        # [修改] 使用 tqdm 包装 as_completed，显示生成进度
+        for future in tqdm(as_completed(futures), total=n, desc="Generating Questions"):
             try:
                 res = future.result()
-                if res["question"]: # 简单过滤空结果
+                if res["question"]:
                     questions.append(res)
             except Exception as e:
                 print(f"Generation task failed: {e}")

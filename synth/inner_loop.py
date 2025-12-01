@@ -178,14 +178,8 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
         # 提交任务
         future_to_q = {executor.submit(process_single_question, q, model_spec, oracle_model, max_refine): q for q in qs}
         
-        count = 0
-        total = len(qs)
-        
-        for future in as_completed(future_to_q):
-            count += 1
-            if count % 5 == 0:
-                print(f"  Progress: {count}/{total}")
-                
+        # as_completed(future_to_q) 返回的是迭代器，total 设为 len(qs)
+        for future in tqdm(as_completed(future_to_q), total=len(qs), desc="Processing & Critiquing"):
             try:
                 data = future.result()
                 if data["result"]: results.append(data["result"])
@@ -193,7 +187,8 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
                 if data["question_candidate"]: questions_candidates.append(data["question_candidate"])
                 if data["critic_pair"]: critic_pairs.append(data["critic_pair"])
             except Exception as e:
-                print(f"  Worker exception: {e}")
+                # 使用 tqdm.write 防止打印打断进度条
+                tqdm.write(f"  Worker exception: {e}")
 
     # 构建 Question Pairs (逻辑保持不变)
     hard_qs = [x for x in questions_candidates if x["label"] == "hard"]
