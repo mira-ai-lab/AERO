@@ -16,6 +16,7 @@ from utils.make_dpo_pairs import convert_pairs_to_sharegpt
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="default_exp", help="实验名称，用于隔离数据和模型")
 parser.add_argument("--port", type=int, default=8001, help="vLLM 服务端口")
+parser.add_argument("--gpus", type=str, default=None, help="指定使用的 GPU ID，例如 '0,1'。如果不传则使用 config.yaml")
 args = parser.parse_args()
 
 EXP_NAME = args.exp_name
@@ -29,7 +30,10 @@ STATE_FILE = os.path.join(EXP_ROOT, "pipeline_state.json")
 VLLM_PORT = args.port
 # LLaMA-Factory 相关配置
 LLAMA_FACTORY_DIR = CFG["default"]["llama_factory_dir"]
-DPO_GPUS = CFG["default"]["dpo_gpus"]
+if args.gpus:
+    DPO_GPUS = args.gpus
+else:
+    DPO_GPUS = CFG["default"]["dpo_gpus"]
 DPO_TRAIN_TEMPLATE_YAML = os.path.join(LLAMA_FACTORY_DIR, CFG["default"]["dpo_train_template_yaml"])
 DPO_MERGE_TEMPLATE_YAML = os.path.join(LLAMA_FACTORY_DIR, CFG["default"]["dpo_merge_template_yaml"])
 

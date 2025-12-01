@@ -84,7 +84,13 @@ def verify_answer(answer: str, question: str, model_spec="deepseek-r1-250528"):
     
     # 2. 调用模型
     # 简单的判断逻辑：如果是 openai model 或 gpt 开头，走 API；否则走本地
-    if model_spec.startswith("gpt") or model_spec == "openai" or "gpt-4" or "deepseek-r1" in model_spec:
+    is_api_model = (
+        model_spec.startswith("gpt") or 
+        model_spec == "openai" or 
+        "gpt-4" in model_spec or       # 注意这里加了 in model_spec
+        "deepseek-r1" in model_spec
+    )
+    if is_api_model:
         raw_txt = _call_openai(prompt, model_spec)
     else:
         raw_txt = _call_local(prompt, model_spec)

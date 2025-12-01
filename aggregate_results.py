@@ -3,6 +3,7 @@ import glob
 import os
 import json
 from typing import List, Dict
+import argparse 
 
 # --- 因为这个脚本在根目录，我们直接从 utils.io 导入 ---
 # (确保你从根目录运行这个脚本)
@@ -77,6 +78,17 @@ def aggregate_verified_qa(base_dir="outputs", output_file="master_qa_dataset.jso
         print("未提取到任何数据，未生成文件。")
 
 if __name__ == "__main__":
-    aggregate_verified_qa()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp_name", type=str, default=None, help="实验名称")
+    args = parser.parse_args()
+
+    if args.exp_name:
+        base_dir = os.path.join("experiments", args.exp_name, "outputs")
+        output_file = os.path.join("experiments", args.exp_name, "master_qa_dataset.jsonl")
+    else:
+        base_dir = "outputs"
+        output_file = "master_qa_dataset.jsonl"
+        
+    aggregate_verified_qa(base_dir=base_dir, output_file=output_file)
 
 # 脚本执行完毕后，你将在根目录下找到一个 master_qa_dataset.jsonl 文件，其中包含了所有轮次中被验证为正确的 {question, answer} 数据集。
