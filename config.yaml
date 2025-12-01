@@ -3,11 +3,11 @@ default:
   initial_model: "http::http://localhost:8001"
   init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
   rounds: 10
-  questions_per_round: 100
+  questions_per_round: 1000
   max_refine: 3
 
   llama_factory_dir: "LLaMA-Factory"
-  dpo_gpus: "6,7"
+  dpo_gpus: "4,5"
   dpo_train_template_yaml: "examples/train_lora/qwen2_5_lora_dpo.yaml"
   dpo_merge_template_yaml: "examples/merge_lora/qwen2_5_lora_dpo.yaml"
     
@@ -17,5 +17,5 @@ default:
   
   critic:
     openai_model: "gpt-4.1"      # Oracle 模型名称
-    warmup_rounds: 3             # 前 N 轮使用 Oracle，同时收集数据
+    warmup_rounds: 4             # 前 N 轮使用 Oracle，同时收集数据
     use_self_critic: true        # warmup 结束后，是否切换为模型自己做 Critic
