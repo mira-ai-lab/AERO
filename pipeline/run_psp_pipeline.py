@@ -5,17 +5,28 @@ Physics Self-Play (PSP) pipeline
 多轮自博弈：内循环 (数据合成 + 批评 + 精炼) → 外循环 (DPO 训练)
 每轮训练完毕后自动重新部署 vLLM 加载新模型。
 """
-
+import argparse
 import os, json, yaml, subprocess, time, requests, shutil
 from datetime import datetime
 from cluster.cluster_agent import ClusterAgent
-# 导入我们需要的 utils.io 中的函数
 from utils.io import read_jsonl
+from utils.make_dpo_pairs import convert_pairs_to_sharegpt
+
+# ===== 1. 获取实验名称 =====
+parser = argparse.ArgumentParser()
+parser.add_argument("--exp_name", type=str, default="default_exp", help="实验名称，用于隔离数据和模型")
+parser.add_argument("--port", type=int, default=8001, help="vLLM 服务端口")
+args = parser.parse_args()
+
+EXP_NAME = args.exp_name
+# 所有该实验的数据都放在 experiments/{EXP_NAME}/ 下
+EXP_ROOT = os.path.join("experiments", EXP_NAME)
+os.makedirs(EXP_ROOT, exist_ok=True)
 
 # ===== 配置加载 =====
 CFG = yaml.safe_load(open("config.yaml"))
 STATE_FILE = "pipeline/pipeline_state.json"
-VLLM_PORT = 8001
+VLLM_PORT = args.port
 # LLaMA-Factory 相关配置
 LLAMA_FACTORY_DIR = CFG["default"]["llama_factory_dir"]
 DPO_GPUS = CFG["default"]["dpo_gpus"]
@@ -49,10 +60,10 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
 
     # 2. 启动新模型
-    vllm_gpus = "4,5" 
+    vllm_gpus = "0,1" 
     tensor_parallel_size = 2
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
-           f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} "
+           f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
            f"--served-model-name psp_model " 
            f"> vllm_round.log 2>&1 &")
     subprocess.run(cmd, shell=True)
@@ -101,33 +112,28 @@ def stop_vllm_service(port: int = 8000):
 # ===== 内循环 =====
 def run_inner_loop(current_model, round_idx):
     print(f"[Round {round_idx}] 🚀 内循环启动（模型：{current_model}）")
-    out_dir = f"outputs/round_{round_idx}"
+    out_dir = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}")
     os.makedirs(out_dir, exist_ok=True)
 
     # [新增] 检查点逻辑：如果结果文件已存在，则跳过生成
     marker_file = os.path.join(out_dir, "inner_results.jsonl")
     run_generation = True
+
+    dpo_data_dir = os.path.join(EXP_ROOT, "dpo_data")
+    os.makedirs(dpo_data_dir, exist_ok=True)
     
     if os.path.exists(marker_file):
         print(f"[Round {round_idx}] ⚠️ 检测到内循环数据已存在: {marker_file}")
         print(f"[Round {round_idx}] ⏭️ 跳过数据生成阶段，直接恢复数据状态...")
         run_generation = False
         
-        # [重要] 恢复 dpo_data 现场
-        # 因为后续的 make_dpo_pairs 依赖 dpo_data 目录下的 .jsonl 文件
-        # 如果跳过生成，我们需要手动将本轮 outputs 里的文件复制过去
-        dpo_data_dir = "dpo_data"
-        os.makedirs(dpo_data_dir, exist_ok=True)
+        # 恢复数据逻辑
         files_to_restore = ["answers_pairs.jsonl", "questions_pairs.jsonl", "critic_pairs.jsonl"]
-        
         for fname in files_to_restore:
             src = os.path.join(out_dir, fname)
             dst = os.path.join(dpo_data_dir, fname)
             if os.path.exists(src):
                 shutil.copy(src, dst)
-                print(f"  - 已将 {fname} 恢复至 {dpo_data_dir}")
-            else:
-                print(f"  - ⚠️ 未找到 {src}，可能该轮没有生成此类数据。")
 
     if run_generation:
         env = os.environ.copy()
@@ -140,71 +146,67 @@ def run_inner_loop(current_model, round_idx):
             "--round", str(round_idx) # [新增] 传递轮次信息
         ]
         subprocess.run(cmd, check=True, env=env)
+
+        files_to_copy = ["answers_pairs.jsonl", "questions_pairs.jsonl", "critic_pairs.jsonl"]
+        for fname in files_to_copy:
+            src = os.path.join(out_dir, fname)
+            dst = os.path.join(dpo_data_dir, fname)
+            if os.path.exists(src):
+                shutil.copy(src, dst)
     
-    # (重要) 运行 make_dpo_pairs 脚本
-    # 无论是否跳过生成，都需要运行这一步，将 .jsonl 转换为 LLaMA-Factory 需要的 .json 格式
-    cmd_dpo_convert = ["python3", "utils/make_dpo_pairs.py"]
-    if os.name == 'posix':
-        # 确保使用 -m 方式运行，以处理模块路径问题
-        cmd_dpo_convert = ["python3", "-m", "utils.make_dpo_pairs"]
-    subprocess.run(cmd_dpo_convert, check=True)
+    print(f"[Round {round_idx}] Converting to ShareGPT format...")
     
+    pairs_map = {
+        "answers_pairs.jsonl": "answers_dpo.json",
+        "questions_pairs.jsonl": "questions_dpo.json",
+        "critic_pairs.jsonl": "critic_dpo.json"
+    }
+    
+    for input_name, output_name in pairs_map.items():
+        inp_path = os.path.join(dpo_data_dir, input_name)
+        out_path = os.path.join(dpo_data_dir, output_name)
+        if os.path.exists(inp_path):
+            convert_pairs_to_sharegpt(inp_path, out_path)
+
     print(f"[Round {round_idx}] ✅ 内循环准备完成。\n")
 
 
 # ===== DPO 数据集准备 (LLaMA-Factory) =====
 def prepare_dpo_data_for_llamafactory(round_idx, llama_factory_dir):
-    """
-    动态合并、写入和注册 LLaMA-Factory 所需的数据集。
-    """
-    print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
-    
-    # 1. 定义数据集名称和路径
-    dataset_name = f"psp_dpo_round_{round_idx}"
+    dataset_name = f"{EXP_NAME}_dpo_round_{round_idx}"
     file_name = f"{dataset_name}.json"
+    
     dataset_file_path = os.path.join(llama_factory_dir, "data", file_name)
     dataset_info_path = os.path.join(llama_factory_dir, "data", "dataset_info.json")
     
-    # 2. 合并已转换的 ShareGPT 格式数据
+    dpo_data_dir = os.path.join(EXP_ROOT, "dpo_data")
+    
     combined_data = []
-    if os.path.exists("dpo_data/answers_dpo.json"):
-        with open("dpo_data/answers_dpo.json", 'r', encoding='utf-8') as f:
-            combined_data.extend(json.load(f))
-    if os.path.exists("dpo_data/questions_dpo.json"):
-        with open("dpo_data/questions_dpo.json", 'r', encoding='utf-8') as f:
-            combined_data.extend(json.load(f))
-    # [新增] Critic
-    if os.path.exists("dpo_data/critic_dpo.json"):
-        print(f"  - Loading Critic preference data...")
-        with open("dpo_data/critic_dpo.json", 'r') as f: combined_data.extend(json.load(f))
+    for fname in ["answers_dpo.json", "questions_dpo.json", "critic_dpo.json"]:
+        fpath = os.path.join(dpo_data_dir, fname)
+        if os.path.exists(fpath):
+            with open(fpath, 'r', encoding='utf-8') as f:
+                combined_data.extend(json.load(f))
             
-    # 3. 将合并后的数据写入 LLaMA-Factory/data 目录
     with open(dataset_file_path, 'w', encoding='utf-8') as f:
         json.dump(combined_data, f, ensure_ascii=False, indent=2)
-    print(f"Wrote {len(combined_data)} pairs to {dataset_file_path}")
-
-    # 4. 动态注册数据集到 dataset_info.json
+    
     try:
         with open(dataset_info_path, 'r', encoding='utf-8') as f:
             dataset_info = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except Exception:
         dataset_info = {}
 
     dataset_info[dataset_name] = {
         "file_name": file_name,
         "ranking": True,
         "formatting": "sharegpt",
-        "columns": {
-            "messages": "conversations",
-            "chosen": "chosen",
-            "rejected": "rejected"
-        }
+        "columns": {"messages": "conversations", "chosen": "chosen", "rejected": "rejected"}
     }
     
     with open(dataset_info_path, 'w', encoding='utf-8') as f:
         json.dump(dataset_info, f, ensure_ascii=False, indent=4)
-    print(f"Registered '{dataset_name}' in {dataset_info_path}")
-
+        
     return dataset_name
 
 
@@ -214,28 +216,24 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     执行 LLaMA-Factory LoRA DPO 训练与合并。
     训练完成后，删除 LoRA 适配器和检查点，只保留最终合并的模型。
     """
-    print(f"[Round {round_idx}] 🧠 外循环 DPO (LoRA) 训练中...")
-    
-    # ===== [调试修改] =====
-    # 1. (注释掉) 准备和注册动态数据集
-    print(f"[Round {round_idx}] Preparing DPO data for LLaMA-Factory...")
     dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
     
-    # # 1. (新) 使用你已在 dataset_info.json 中注册的固定数据集名称
-    # dataset_name = "debug_dpo_data" 
-    # print(f"⚠️ [DEBUG] 正在使用固定的数据集: {dataset_name}")
-    # =====================
+    # [修改] LoRA 和 Merge 路径基于 EXP_ROOT
+    lora_output_dir = os.path.join(EXP_ROOT, f"saves/psp_round_{round_idx}")
+    final_merged_model_dir = os.path.join(EXP_ROOT, f"models/psp_round_{round_idx}")
     
-    # 2. 动态配置 DPO 训练 YAML
-    lora_output_dir = f"saves/psp_round_{round_idx}" # LoRA 适配器保存路径
-    dynamic_train_yaml_path = f"outputs/round_{round_idx}/dpo_train_config.yaml"
+    # Config 文件也保存到实验目录
+    dynamic_train_yaml_path = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}/dpo_train_config.yaml")
+    
+    # 确保目录存在
+    os.makedirs(os.path.dirname(dynamic_train_yaml_path), exist_ok=True)
+
     with open(DPO_TRAIN_TEMPLATE_YAML, 'r', encoding='utf-8') as f:
         train_config = yaml.safe_load(f)
         
     train_config["model_name_or_path"] = base_model_path
     train_config["dataset"] = dataset_name
     train_config["output_dir"] = lora_output_dir
-
     train_config["dataset_dir"] = os.path.join(LLAMA_FACTORY_DIR, "data")
     
     with open(dynamic_train_yaml_path, 'w', encoding='utf-8') as f:
@@ -287,7 +285,7 @@ def run_outer_loop(base_model_path: str, round_idx: int):
 # ===== ClusterAgent =====
 def cluster_and_update_prompt(round_idx):
     import json
-    path = f"outputs/round_{round_idx}/inner_results.jsonl"
+    path = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}/inner_results.jsonl")
     if not os.path.exists(path):
         print("⚠️ 未找到 inner_results.jsonl，跳过 cluster 分析。")
         return
@@ -312,6 +310,9 @@ def cluster_and_update_prompt(round_idx):
 
 # ===== 主流程 (修改) =====
 def main():
+    print(f"🔵 启动 PSP Pipeline | 实验名称: {EXP_NAME}")
+    print(f"📂 实验根目录: {EXP_ROOT}")
+
     state = load_state()
     total_rounds = CFG["default"]["rounds"]
     
