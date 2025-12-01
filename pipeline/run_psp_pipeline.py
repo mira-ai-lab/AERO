@@ -60,7 +60,7 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
 
     # 2. 启动新模型
-    vllm_gpus = "0,1" 
+    vllm_gpus = DPO_GPUS
     tensor_parallel_size = 2
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
