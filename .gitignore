@@ -1,7 +1,7 @@
 __pycache__/
 *.log
 dpo_data/
-outputs/
-models/
+outputs*/
+models*/
 saves/
 pipeline/pipeline_state.json
