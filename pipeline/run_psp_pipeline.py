@@ -11,7 +11,8 @@ from datetime import datetime
 from cluster.cluster_agent import ClusterAgent
 from utils.io import read_jsonl
 from utils.make_dpo_pairs import convert_pairs_to_sharegpt
-
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
 # ===== 1. 获取实验名称 =====
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="default_exp", help="实验名称，用于隔离数据和模型")

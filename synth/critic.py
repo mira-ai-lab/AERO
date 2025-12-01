@@ -63,7 +63,7 @@ def _call_openai(prompt, model):
             model=model,
             messages=[{"role":"user","content":prompt}],
             temperature=0.0,
-            max_tokens=10240
+            max_tokens=8192
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -72,7 +72,7 @@ def _call_openai(prompt, model):
 
 def _call_local(prompt, model_spec):
     # 本地模型调用，temperature=0.0 保证确定性
-    return generate(model_spec, prompt, max_tokens=10240, temperature=0.0)
+    return generate(model_spec, prompt, max_tokens=8192, temperature=0.0)
 
 def verify_answer(answer: str, question: str, model_spec="deepseek-r1-250528"):
     """
