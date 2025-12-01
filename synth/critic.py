@@ -2,11 +2,13 @@
 import os, json
 from openai import OpenAI
 from local_model.local_model_interface import generate
-
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
 # 配置 OpenAI Client (Oracle)
-base_url = "https://api.pumpkinaigc.online/v1"
+# os.environ['https_proxy'] = 'http://agent.baidu.com:8891'
+base_url = "http://yy.dbh.baidu-int.com/v1"
 client = OpenAI(
-    api_key="sk-if3ocGdwB3VI97us82181fCf6884490a983c6e4e5c47C656",
+    api_key="sk-HsDcdnIrzLa2ywPYZsYESgsJhohPiw8SgvZ7zY8phJlARIeT",
     base_url=base_url
 )
 
@@ -30,7 +32,7 @@ Please strictly verify the correctness of the provided [Problem] and [Solution u
 -   **confidence** (float): A value between 0.0 and 1.0, representing your confidence level in the verdict (specifically regarding the presence or absence of "critical_errors").
 
 # JSON Output Example
-{
+{{
   "critical_errors": [
     "...",
     "..."
@@ -40,7 +42,7 @@ Please strictly verify the correctness of the provided [Problem] and [Solution u
     "..."
   ],
   "confidence": 0.98
-}
+}}
 
 # Format Constraints
 -   The output must be valid JSON format.
@@ -61,7 +63,7 @@ def _call_openai(prompt, model):
             model=model,
             messages=[{"role":"user","content":prompt}],
             temperature=0.0,
-            max_tokens=1024,
+            max_tokens=10240
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -70,9 +72,9 @@ def _call_openai(prompt, model):
 
 def _call_local(prompt, model_spec):
     # 本地模型调用，temperature=0.0 保证确定性
-    return generate(model_spec, prompt, max_tokens=1024, temperature=0.0)
+    return generate(model_spec, prompt, max_tokens=10240, temperature=0.0)
 
-def verify_answer(answer: str, question: str, model_spec="gpt-4.1"):
+def verify_answer(answer: str, question: str, model_spec="deepseek-r1-250528"):
     """
     执行一次 Critic 验证。
     返回包含 passed 状态、建议、以及用于 DPO 的原始文本和 Prompt。
@@ -82,7 +84,7 @@ def verify_answer(answer: str, question: str, model_spec="gpt-4.1"):
     
     # 2. 调用模型
     # 简单的判断逻辑：如果是 openai model 或 gpt 开头，走 API；否则走本地
-    if model_spec.startswith("gpt") or model_spec == "openai" or "gpt-4" in model_spec:
+    if model_spec.startswith("gpt") or model_spec == "openai" or "gpt-4" or "deepseek-r1" in model_spec:
         raw_txt = _call_openai(prompt, model_spec)
     else:
         raw_txt = _call_local(prompt, model_spec)

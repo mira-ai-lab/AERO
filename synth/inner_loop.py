@@ -9,6 +9,7 @@ from synth.generator import generate_questions
 from synth.answerer import answer_question, self_refine
 from synth.critic import verify_answer
 from utils.io import write_jsonl
+from tqdm import tqdm
 
 CFG_PATH = "config.yaml"
 if os.path.exists(CFG_PATH):
@@ -155,7 +156,7 @@ def process_single_question(q, model_spec, oracle_model, max_refine):
         
     return ret
 
-def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::/path/to/model", round_idx=0, max_refine=3, max_workers=10):
+def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::/path/to/model", round_idx=0, max_refine=3, max_workers=20):
     os.makedirs(out_dir, exist_ok=True)
     
     # 配置
@@ -229,7 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_spec", type=str, default=None)
     parser.add_argument("--round", type=int, default=0)
     parser.add_argument("--max_refine", type=int, default=3)
-    parser.add_argument("--workers", type=int, default=10, help="Parallel workers count") # 新增参数
+    parser.add_argument("--workers", type=int, default=20, help="Parallel workers count") 
     args = parser.parse_args()
     
     ms = args.model_spec or os.environ.get("CURRENT_MODEL") or "local::/path/to/model"
