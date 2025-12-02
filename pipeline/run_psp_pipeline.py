@@ -68,7 +68,7 @@ def restart_vllm_service(model_path: str, port: int = 8000):
     vllm_gpus = DPO_GPUS
     tensor_parallel_size = 2
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
-           f"--port {port} --max-model-len 8192 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
+           f"--port {port} --max-model-len 10240 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
            f"--served-model-name psp_model " 
            f"> vllm_{EXP_NAME}.log 2>&1 &")
     subprocess.run(cmd, shell=True)
@@ -221,13 +221,16 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     执行 LLaMA-Factory LoRA DPO 训练与合并。
     训练完成后，删除 LoRA 适配器和检查点，只保留最终合并的模型。
     """
+    print(f"[Round {round_idx}] 🧠 外循环 DPO (LoRA) 训练中...")
+    
+    # 1. 准备数据
     dataset_name = prepare_dpo_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
     
-    # [修改] LoRA 和 Merge 路径基于 EXP_ROOT
+    # 2. 定义路径 (基于 EXP_ROOT)
     lora_output_dir = os.path.join(EXP_ROOT, f"saves/psp_round_{round_idx}")
     final_merged_model_dir = os.path.join(EXP_ROOT, f"models/psp_round_{round_idx}")
     
-    # Config 文件也保存到实验目录
+    # 3. 动态配置 DPO 训练 YAML
     dynamic_train_yaml_path = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}/dpo_train_config.yaml")
     
     # 确保目录存在
@@ -244,29 +247,30 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     with open(dynamic_train_yaml_path, 'w', encoding='utf-8') as f:
         yaml.dump(train_config, f)
         
-    # 3. 执行 DPO 训练命令
+    # 4. 执行 DPO 训练命令
     cmd_train = (f"FORCE_TORCHRUN=1 CUDA_VISIBLE_DEVICES={DPO_GPUS} "
                  f"llamafactory-cli train {dynamic_train_yaml_path}")
     print(f"[RUN] {cmd_train}")
     subprocess.run(cmd_train, shell=True, check=True)
     print(f"[Round {round_idx}] ✅ DPO 训练 (LoRA) 完成. 适配器保存在 {lora_output_dir}")
 
-    # 4. 动态配置模型合并 YAML
+    # 5. 动态配置模型合并 YAML
     print(f"[Round {round_idx}] 🔄 合并模型中...")
-    final_merged_model_dir = f"models/psp_round_{round_idx}" # 最终完整模型路径
-    dynamic_merge_yaml_path = f"outputs/round_{round_idx}/merge_config.yaml"
+    
+    # [关键修复] 使用正确的基于 EXP_ROOT 的路径
+    dynamic_merge_yaml_path = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}/merge_config.yaml")
     
     with open(DPO_MERGE_TEMPLATE_YAML, 'r', encoding='utf-8') as f:
         merge_config = yaml.safe_load(f)
         
     merge_config["model_name_or_path"] = base_model_path
     merge_config["adapter_name_or_path"] = lora_output_dir
-    merge_config["export_dir"] = final_merged_model_dir
+    merge_config["export_dir"] = final_merged_model_dir  # 使用上面正确定义的路径
 
     with open(dynamic_merge_yaml_path, 'w', encoding='utf-8') as f:
         yaml.dump(merge_config, f)
 
-    # 5. 执行模型合并命令
+    # 6. 执行模型合并命令
     cmd_merge = f"CUDA_VISIBLE_DEVICES={DPO_GPUS} llamafactory-cli export {dynamic_merge_yaml_path}"
     print(f"[RUN] {cmd_merge}")
     subprocess.run(cmd_merge, shell=True, check=True)
@@ -274,7 +278,7 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     print(f"[Round {round_idx}] ✅ 模型合并完成，新模型保存至 {final_merged_model_dir}")
 
     # =====================================================
-    # 11/18 清理 LoRA 权重和检查点
+    # 清理 LoRA 权重和检查点
     # =====================================================
     if os.path.exists(lora_output_dir):
         print(f"[Cleanup] 🗑️ 正在删除 LoRA 中间产物 (节省空间): {lora_output_dir}")
@@ -283,7 +287,7 @@ def run_outer_loop(base_model_path: str, round_idx: int):
             print(f"[Cleanup] ✅ 已删除 {lora_output_dir}")
         except Exception as e:
             print(f"[Cleanup] ⚠️ 删除失败: {e}")
-    # =====================================================
+            
     return f"local::{final_merged_model_dir}"
 
 
