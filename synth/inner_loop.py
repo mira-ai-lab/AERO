@@ -5,9 +5,9 @@ import json
 import shutil
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from synth.generator import generate_questions
+from synth.generator import generate_questions 
 from synth.answerer import answer_question, self_refine
-from synth.critic import verify_answer
+from synth.critic import verify_answer, check_answer_equivalence, generate_critique_with_gold
 from utils.io import write_jsonl
 from tqdm import tqdm
 
@@ -18,163 +18,189 @@ if os.path.exists(CFG_PATH):
 else:
     CFG = {}
 
-def run_refinement_loop(question, initial_answer, critic_model_spec, max_refine=3):
+def run_refinement_loop(question, initial_answer, critic_model_spec, ground_truth, use_gold_for_critique=False, max_refine=3):
     """
-    辅助函数：运行一次完整的【批评 -> 精炼】循环。
+    运行一次【批评 -> 精炼】轨迹。
     """
     current_answer = initial_answer
-    
-    # 对 S0 进行批评
-    initial_critic_res = verify_answer(current_answer, question, model_spec=critic_model_spec)
-    
     trajectory = []
-    status = "passed_initial" if initial_critic_res["passed"] else "failed_initial"
+    status = "failed_initial"
+    final_answer = current_answer
     
-    if not initial_critic_res["passed"]:
-        critic_res = initial_critic_res
-        for i in range(max_refine):
-            # 提取反馈
-            feedback = "\n".join(critic_res.get("issues", [])[:3]) or "请修正计算或逻辑。"
-            # 自我修正
-            refiner_spec = os.environ.get("CURRENT_MODEL") or critic_model_spec 
-            current_answer = self_refine(question, current_answer, feedback, model_spec=refiner_spec)
+    # 获取初始 Critique (仅用于生成 Feedback，不用于真值判断)
+    if use_gold_for_critique:
+        # Teacher Mode: 看着答案批评
+        critique_data = generate_critique_with_gold(question, current_answer, ground_truth, critic_model_spec)
+    else:
+        # Student Mode: 盲批
+        critique_data = verify_answer(current_answer, question, model_spec=critic_model_spec)
+    
+    initial_critique_raw = critique_data["raw_output"]
+    initial_critique_prompt = critique_data["prompt"]
+
+    for i in range(max_refine):
+        # 1. 提取 Feedback
+        issues = critique_data.get("issues", []) or critique_data.get("critic_details", {}).get("critical_errors", [])
+        feedback = "\n".join(issues[:3]) or "Please check calculations and logic."
+        
+        # 2. Self-Refine
+        refiner_spec = os.environ.get("CURRENT_MODEL") or critic_model_spec 
+        current_answer = self_refine(question, current_answer, feedback, model_spec=refiner_spec)
+        
+        # 3. 验证 (Local Check against Oracle Gold)
+        check_res = check_answer_equivalence(question, ground_truth, current_answer, model_spec=refiner_spec)
+        is_passed = check_res["passed"]
+        
+        trajectory.append({
+            "step": i+1, 
+            "feedback": feedback, 
+            "answer": current_answer, 
+            "passed": is_passed
+        })
+        
+        if is_passed:
+            status = f"refined_pass_{i+1}"
+            final_answer = current_answer
+            break
             
-            # 再次验证
-            critic_res = verify_answer(current_answer, question, model_spec=critic_model_spec)
-            trajectory.append({"step": i+1, "feedback": feedback, "answer": current_answer, "passed": critic_res["passed"]})
-            
-            if critic_res["passed"]:
-                status = f"refined_pass_{i+1}"
-                break
-        else:
-            status = "failed_after_refine"
+        # 4. 如果还没对，生成下一轮 Critique 用于继续修正
+        if i < max_refine - 1:
+            if use_gold_for_critique:
+                critique_data = generate_critique_with_gold(question, current_answer, ground_truth, critic_model_spec)
+            else:
+                critique_data = verify_answer(current_answer, question, model_spec=critic_model_spec)
             
     return {
-        "final_answer": current_answer,
-        "initial_critic_res": initial_critic_res,
+        "final_answer": final_answer,
         "status": status,
+        "initial_critique_raw": initial_critique_raw,
+        "initial_critique_prompt": initial_critique_prompt,
         "trajectory": trajectory
     }
 
-def process_single_question(q, model_spec, oracle_model, max_refine, active_critic):
-    """
-    处理单个问题的逻辑，用于并行执行。
-    返回一个字典，包含该问题产生的所有数据记录（result, answer_pair, question_candidate, critic_pair）。
-    """
+def process_single_question(q, model_spec, oracle_model, max_refine, round_idx, warmup_rounds):
     question_text = q["question"]
     question_prompt = q.get("prompt", "")
-    
-    # 容器初始化
-    ret = {
-        "result": None,
-        "answer_pair": None,
-        "question_candidate": None,
-        "critic_pair": None
-    }
+    ret = {"result": None, "answer_pair": None, "question_candidate": None, "critic_pair": None}
 
     try:
         # 1. 初始作答 (S0)
         initial_answer = answer_question(question_text, model_spec=model_spec)
         
-        # 2. 【真值判断】S0 是否正确？(使用 Oracle 作为客观裁判)
+        # 2. Oracle 判决 (S0 Check) - 获取真值和标准答案
         s0_check = verify_answer(initial_answer, question_text, model_spec=oracle_model)
         s0_is_correct = s0_check["passed"]
-        
+        oracle_gold = s0_check.get("correct_solution")
+
+        # 补救：如果 Oracle 判错但没给 GT (罕见)，尝试强制生成一次
+        if not s0_is_correct and not oracle_gold:
+            #  print(f"  [Skip] Oracle failed to provide GT for Q: {question_text[:10]}...")
+             return ret
+
         final_record = None
-        
+
         if s0_is_correct:
-            # --- Case A: S0 初始即正确 (Easy) ---
-            status = "passed_initial"
+            # Case A: Easy Sample
             final_record = {
                 "question": question_text, "initial_answer": initial_answer, 
-                "final_answer": initial_answer, "status": status, "critic_report": s0_check["critic_details"]
+                "final_answer": initial_answer, "status": "passed_initial", 
+                "critic_report": s0_check["critic_details"]
             }
+            ret["question_candidate"] = {"question": question_text, "label": "easy", "prompt": question_prompt}
+
         else:
-            # --- Case B: S0 错误 (Hard / Needs Correction) ---
+            # Case B: Hard Sample
+            ret["question_candidate"] = {"question": question_text, "label": "hard", "prompt": question_prompt}
             
-            # 2.1 运行 Local Critic 循环
-            local_run = run_refinement_loop(question_text, initial_answer, critic_model_spec=model_spec, max_refine=max_refine)
+            if not oracle_gold:
+                return ret # 无法获取 GT，放弃此题
+
+            is_warmup = round_idx <= warmup_rounds
             
-            # 2.2 【真值判断】Local 修正后的最终答案是否正确？
-            local_final_check = verify_answer(local_run["final_answer"], question_text, model_spec=oracle_model)
-            local_success = local_final_check["passed"]
-            
-            if local_success:
-                # -> Local 成功修正了错误
-                final_record = {
-                    "question": question_text, "initial_answer": initial_answer,
-                    "final_answer": local_run["final_answer"], "status": local_run["status"], "critic_report": local_run["initial_critic_res"]["critic_details"]
-                }
-                ret["answer_pair"] = {"question": question_text, "chosen": local_run["final_answer"], "rejected": initial_answer}
+            if is_warmup:
+                # === Warmup: Teacher Mode (Gold Assist) ===
+                run = run_refinement_loop(
+                    question_text, initial_answer, 
+                    critic_model_spec=model_spec, 
+                    ground_truth=oracle_gold, 
+                    use_gold_for_critique=True, 
+                    max_refine=max_refine
+                )
                 
-            else:
-                # -> Local 失败了，尝试召唤 Oracle
-                # print(f"  [Correction Needed] Local failed on Q. Invoking Oracle...") # 多线程下减少 print 防止刷屏
-                oracle_run = run_refinement_loop(question_text, initial_answer, critic_model_spec=active_critic, max_refine=max_refine)
-                
-                # 【真值判断】Oracle 修正后的结果是否正确？
-                oracle_final_check = verify_answer(oracle_run["final_answer"], question_text, model_spec=oracle_model)
-                oracle_success = oracle_final_check["passed"]
-                
-                if oracle_success:
-                    # -> Oracle 成功修正
-                    # 1. 构建 Critic Pair
-                    ret["critic_pair"] = {
-                        "prompt": oracle_run["initial_critic_res"]["prompt"], 
-                        "chosen": oracle_run["initial_critic_res"]["raw_output"],
-                        "rejected": local_run["initial_critic_res"]["raw_output"]
-                    }
-                    
-                    # 2. 构建 Answerer Pair
-                    ret["answer_pair"] = {"question": question_text, "chosen": oracle_run["final_answer"], "rejected": initial_answer}
-                    
-                    final_record = {
-                        "question": question_text, "initial_answer": initial_answer,
-                        "final_answer": oracle_run["final_answer"], "status": "refined_pass_oracle", "critic_report": oracle_run["initial_critic_res"]["critic_details"]
-                    }
+                if "pass" in run["status"]:
+                    # Answer DPO: Refined > Initial
+                    ret["answer_pair"] = {"question": question_text, "chosen": run["final_answer"], "rejected": initial_answer}
+                    final_record = {"question": question_text, "final_answer": run["final_answer"], "status": run["status"]}
                 else:
-                    # -> Oracle 也失败了
-                    final_record = {
-                        "question": question_text, "initial_answer": initial_answer,
-                        "final_answer": local_run["final_answer"], "status": "failed_after_refine", "critic_report": local_run["initial_critic_res"]["critic_details"]
-                    }
+                    # 即使有老师教也没学会，放弃
+                    final_record = {"question": question_text, "final_answer": run["final_answer"], "status": "failed_with_teacher"}
+
+            else:
+                # === Post-Warmup: Sampling Mode (Self-Correction) ===
+                N_SAMPLES = 16
+                successful_runs = []
+                failed_runs = []
+                
+                # 采样 N 次尝试
+                for _ in range(N_SAMPLES):
+                    run = run_refinement_loop(
+                        question_text, initial_answer, 
+                        critic_model_spec=model_spec, 
+                        ground_truth=oracle_gold, 
+                        use_gold_for_critique=False, # 盲批
+                        max_refine=max_refine
+                    )
+                    
+                    if "pass" in run["status"]:
+                        successful_runs.append(run)
+                    else:
+                        failed_runs.append(run)
+                    
+                    # 只要凑齐一对正负样本即可提前结束
+                    if successful_runs and failed_runs:
+                        break
+                
+                if successful_runs:
+                    best = successful_runs[0]
+                    ret["answer_pair"] = {"question": question_text, "chosen": best["final_answer"], "rejected": initial_answer}
+                    final_record = {"question": question_text, "final_answer": best["final_answer"], "status": best["status"]}
+                    
+                    if failed_runs:
+                        worst = failed_runs[0]
+                        # Critic DPO: 能修好的 Critique vs 修不好的 Critique
+                        ret["critic_pair"] = {
+                            "prompt": best["initial_critique_prompt"],
+                            "chosen": best["initial_critique_raw"],
+                            "rejected": worst["initial_critique_raw"]
+                        }
+                else:
+                    final_record = {"question": question_text, "final_answer": failed_runs[0]["final_answer"], "status": "failed_all_samples"}
 
         if final_record:
             final_record["meta"] = q.get("meta", {})
             ret["result"] = final_record
-
-        # Question DPO Candidates
-        label = "easy" if s0_is_correct else "hard"
-        ret["question_candidate"] = {
-            "question": question_text, 
-            "label": label,
-            "prompt": question_prompt
-        }
 
     except Exception as e:
         print(f"[Error] Processing question failed: {e}")
         
     return ret
 
-def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::/path/to/model", round_idx=0, max_refine=3, max_workers=20):
+def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::", round_idx=0, max_refine=3, max_workers=20):
     os.makedirs(out_dir, exist_ok=True)
     
-    # 配置
     critic_cfg = CFG.get("default", {}).get("critic", {})
     oracle_model = critic_cfg.get("openai_model", "gpt-4.1")
-    
     warmup_rounds = critic_cfg.get("warmup_rounds", 0)
-
-    if round_idx <= warmup_rounds:
-        active_critic = oracle_model
-    else:
-        active_critic = model_spec
-
-    print(f"[InnerLoop] Round {round_idx}. Active Model: {model_spec}")
+    
+    print(f"[InnerLoop] Round {round_idx}. Oracle: {oracle_model}. Warmup Ends: {warmup_rounds}")
     print(f"[InnerLoop] Generating {n_questions} questions...")
     
-    qs = generate_questions(n_questions, model_spec=model_spec)
+    qs = generate_questions(n_questions, model_spec=model_spec, max_workers=max_workers)
     
+    if not qs:
+        print("[Error] No questions generated!")
+        return
+
     results = []
     answers_pairs = []
     questions_candidates = []
@@ -183,11 +209,14 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
     print(f"[InnerLoop] Processing questions in parallel (workers={max_workers})...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交任务
-        future_to_q = {executor.submit(process_single_question, q, model_spec, oracle_model, max_refine,active_critic): q for q in qs}
+        future_to_q = {
+            executor.submit(
+                process_single_question, 
+                q, model_spec, oracle_model, max_refine, round_idx, warmup_rounds
+            ): q for q in qs
+        }
         
-        # as_completed(future_to_q) 返回的是迭代器，total 设为 len(qs)
-        for future in tqdm(as_completed(future_to_q), total=len(qs), desc="Processing & Critiquing"):
+        for future in tqdm(as_completed(future_to_q), total=len(qs), desc="Processing"):
             try:
                 data = future.result()
                 if data["result"]: results.append(data["result"])
@@ -195,10 +224,9 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
                 if data["question_candidate"]: questions_candidates.append(data["question_candidate"])
                 if data["critic_pair"]: critic_pairs.append(data["critic_pair"])
             except Exception as e:
-                # 使用 tqdm.write 防止打印打断进度条
                 tqdm.write(f"  Worker exception: {e}")
 
-    # 构建 Question Pairs (逻辑保持不变)
+    # 构建 Question Pairs 
     hard_qs = [x for x in questions_candidates if x["label"] == "hard"]
     easy_qs = [x for x in questions_candidates if x["label"] == "easy"]
     m = min(len(hard_qs), len(easy_qs))
@@ -210,14 +238,12 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
             "rejected": easy_qs[i]["question"]
         })
 
-    # 写入文件
     print(f"[InnerLoop] Writing results to {out_dir}...")
     write_jsonl(os.path.join(out_dir, "inner_results.jsonl"), results)
     write_jsonl(os.path.join(out_dir, "answers_pairs.jsonl"), answers_pairs)
     write_jsonl(os.path.join(out_dir, "questions_pairs.jsonl"), questions_pairs)
     write_jsonl(os.path.join(out_dir, "critic_pairs.jsonl"), critic_pairs)
 
-    # 复制到 dpo_data
     dpo_data_dir = "dpo_data"
     os.makedirs(dpo_data_dir, exist_ok=True)
     try:
