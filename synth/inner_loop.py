@@ -56,7 +56,7 @@ def run_refinement_loop(question, initial_answer, critic_model_spec, max_refine=
         "trajectory": trajectory
     }
 
-def process_single_question(q, model_spec, oracle_model, max_refine):
+def process_single_question(q, model_spec, oracle_model, max_refine, active_critic):
     """
     处理单个问题的逻辑，用于并行执行。
     返回一个字典，包含该问题产生的所有数据记录（result, answer_pair, question_candidate, critic_pair）。
@@ -110,7 +110,7 @@ def process_single_question(q, model_spec, oracle_model, max_refine):
             else:
                 # -> Local 失败了，尝试召唤 Oracle
                 # print(f"  [Correction Needed] Local failed on Q. Invoking Oracle...") # 多线程下减少 print 防止刷屏
-                oracle_run = run_refinement_loop(question_text, initial_answer, critic_model_spec=oracle_model, max_refine=max_refine)
+                oracle_run = run_refinement_loop(question_text, initial_answer, critic_model_spec=active_critic, max_refine=max_refine)
                 
                 # 【真值判断】Oracle 修正后的结果是否正确？
                 oracle_final_check = verify_answer(oracle_run["final_answer"], question_text, model_spec=oracle_model)
@@ -163,6 +163,13 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
     critic_cfg = CFG.get("default", {}).get("critic", {})
     oracle_model = critic_cfg.get("openai_model", "gpt-4.1")
     
+    warmup_rounds = critic_cfg.get("warmup_rounds", 0)
+
+    if round_idx <= warmup_rounds:
+        active_critic = oracle_model
+    else:
+        active_critic = model_spec
+
     print(f"[InnerLoop] Round {round_idx}. Active Model: {model_spec}")
     print(f"[InnerLoop] Generating {n_questions} questions...")
     
@@ -177,7 +184,7 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交任务
-        future_to_q = {executor.submit(process_single_question, q, model_spec, oracle_model, max_refine): q for q in qs}
+        future_to_q = {executor.submit(process_single_question, q, model_spec, oracle_model, max_refine,active_critic): q for q in qs}
         
         # as_completed(future_to_q) 返回的是迭代器，total 设为 len(qs)
         for future in tqdm(as_completed(future_to_q), total=len(qs), desc="Processing & Critiquing"):
