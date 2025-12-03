@@ -10,6 +10,7 @@ from synth.answerer import answer_question, self_refine
 from synth.critic import verify_answer, check_answer_equivalence, generate_critique_with_gold
 from utils.io import write_jsonl
 from tqdm import tqdm
+from collections import defaultdict
 
 CFG_PATH = "config.yaml"
 if os.path.exists(CFG_PATH):
@@ -221,22 +222,45 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
                 data = future.result()
                 if data["result"]: results.append(data["result"])
                 if data["answer_pair"]: answers_pairs.append(data["answer_pair"])
+                # question_candidate 包含: question, label, prompt
                 if data["question_candidate"]: questions_candidates.append(data["question_candidate"])
                 if data["critic_pair"]: critic_pairs.append(data["critic_pair"])
             except Exception as e:
                 tqdm.write(f"  Worker exception: {e}")
 
-    # 构建 Question Pairs 
-    hard_qs = [x for x in questions_candidates if x["label"] == "hard"]
-    easy_qs = [x for x in questions_candidates if x["label"] == "easy"]
-    m = min(len(hard_qs), len(easy_qs))
+    # ========================================================
+    # [核心修改] 构建 Question Pairs (Strictly Grouped by Prompt)
+    # ========================================================
     questions_pairs = []
-    for i in range(m):
-        questions_pairs.append({
-            "prompt": hard_qs[i]["prompt"],
-            "chosen": hard_qs[i]["question"],
-            "rejected": easy_qs[i]["question"]
-        })
+    
+    # 1. 使用字典按 prompt 分组
+    # 结构: { "prompt_text_A": {"hard": [], "easy": []}, "prompt_text_B": ... }
+    grouped_candidates = defaultdict(lambda: {"hard": [], "easy": []})
+    
+    for item in questions_candidates:
+        p = item["prompt"]
+        l = item["label"] # "hard" or "easy"
+        grouped_candidates[p][l].append(item["question"])
+    
+    # 2. 组内配对
+    print(f"[Pairing] Categorizing {len(questions_candidates)} questions into {len(grouped_candidates)} unique prompts...")
+    
+    for prompt, groups in grouped_candidates.items():
+        hards = groups["hard"]
+        easies = groups["easy"]
+        
+        # 在同一个 prompt 下，取 hard 和 easy 的最小公倍数进行配对
+        count = min(len(hards), len(easies))
+        
+        for i in range(count):
+            questions_pairs.append({
+                "prompt": prompt,          # 保证 Chosen/Rejected 都是基于此 Prompt 生成的
+                "chosen": hards[i],        # Chosen: 较难的题目 (Initial 答错)
+                "rejected": easies[i]      # Rejected: 较简单的题目 (Initial 答对)
+            })
+            
+    print(f"[Pairing] Formed {len(questions_pairs)} valid Question DPO pairs.")
+    # ========================================================
 
     print(f"[InnerLoop] Writing results to {out_dir}...")
     write_jsonl(os.path.join(out_dir, "inner_results.jsonl"), results)
@@ -253,7 +277,7 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
     except Exception:
         pass
 
-    print(f"[InnerLoop] Stats: Total={len(qs)}, Critic Pairs={len(critic_pairs)}, Answer Pairs={len(answers_pairs)}")
+    print(f"[InnerLoop] Stats: Total={len(qs)}, Critic Pairs={len(critic_pairs)}, Answer Pairs={len(answers_pairs)}, Question Pairs={len(questions_pairs)}")
     return {"results": results}
 
 if __name__ == "__main__":
