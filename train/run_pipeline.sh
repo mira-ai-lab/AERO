@@ -4,6 +4,7 @@ set -e
 EXP_NAME=${1:-"default_exp"}
 PORT=${2:-8001}
 GPUS=${3:-"4,5"}  # [新增] 第3个参数为 GPU ID，默认 4,5
+CONFIG_PATH=${4:-"config.yaml"}
 
 echo "🚀 Starting Experiment: $EXP_NAME"
 echo "🔌 Port: $PORT | 🎮 GPUs: $GPUS"
