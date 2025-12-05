@@ -6,3 +6,4 @@ models*/
 saves/
 pipeline/pipeline_state*
 experiments/
+config_*
