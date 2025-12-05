@@ -12,4 +12,5 @@ echo "🔌 Port: $PORT | 🎮 GPUs: $GPUS"
 python3 -u -m pipeline.run_psp_pipeline \
     --exp_name "$EXP_NAME" \
     --port "$PORT" \
-    --gpus "$GPUS"
+    --gpus "$GPUS" \
+    --config "$CONFIG_PATH"

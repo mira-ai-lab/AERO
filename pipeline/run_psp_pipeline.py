@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="default_exp", help="实验名称，用于隔离数据和模型")
 parser.add_argument("--port", type=int, default=8001, help="vLLM 服务端口")
 parser.add_argument("--gpus", type=str, default=None, help="指定使用的 GPU ID，例如 '0,1'。如果不传则使用 config.yaml")
+parser.add_argument("--config", type=str, default="config.yaml", help="配置文件路径")
 args = parser.parse_args()
 
 EXP_NAME = args.exp_name
@@ -26,7 +27,8 @@ EXP_ROOT = os.path.join("experiments", EXP_NAME)
 os.makedirs(EXP_ROOT, exist_ok=True)
 
 # ===== 配置加载 =====
-CFG = yaml.safe_load(open("config.yaml"))
+print(f"Loading config from: {args.config}")
+CFG = yaml.safe_load(open(args.config, 'r', encoding='utf-8'))
 STATE_FILE = os.path.join(EXP_ROOT, "pipeline_state.json")
 VLLM_PORT = args.port
 # LLaMA-Factory 相关配置
@@ -66,7 +68,7 @@ def restart_vllm_service(model_path: str, port: int = 8000):
 
     # 2. 启动新模型
     vllm_gpus = DPO_GPUS
-    tensor_parallel_size = 2
+    tensor_parallel_size = 1
     cmd = (f"CUDA_VISIBLE_DEVICES={vllm_gpus} nohup vllm serve {model_path} "
            f"--port {port} --max-model-len 10240 --tensor-parallel-size {tensor_parallel_size} --gpu-memory-utilization 0.95 "
            f"--served-model-name psp_model " 
@@ -148,7 +150,8 @@ def run_inner_loop(current_model, round_idx):
             "--out_dir", out_dir,
             "--n_questions", str(CFG["default"]["questions_per_round"]),
             "--model_spec", current_model,
-            "--round", str(round_idx) # [新增] 传递轮次信息
+            "--round", str(round_idx), # [新增] 传递轮次信息
+            "--config", args.config
         ]
         subprocess.run(cmd, check=True, env=env)
 

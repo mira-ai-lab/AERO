@@ -12,12 +12,12 @@ from utils.io import write_jsonl
 from tqdm import tqdm
 from collections import defaultdict
 
-CFG_PATH = "config.yaml"
-if os.path.exists(CFG_PATH):
-    with open(CFG_PATH, 'r', encoding='utf-8') as f:
-        CFG = yaml.safe_load(f)
-else:
-    CFG = {}
+# CFG_PATH = "config.yaml"
+# if os.path.exists(CFG_PATH):
+#     with open(CFG_PATH, 'r', encoding='utf-8') as f:
+#         CFG = yaml.safe_load(f)
+# else:
+#     CFG = {}
 
 def run_refinement_loop(question, initial_answer, critic_model_spec, ground_truth, use_gold_for_critique=False, max_refine=3):
     """
@@ -74,7 +74,7 @@ def run_refinement_loop(question, initial_answer, critic_model_spec, ground_trut
     return {
         "final_answer": final_answer,
         "status": status,
-        "initial_critique_raw": initial_critique_raw,
+        "initial_critique_raw": critique_data["raw_output"],
         "initial_critique_prompt": initial_critique_prompt,
         "trajectory": trajectory
     }
@@ -186,7 +186,13 @@ def process_single_question(q, model_spec, oracle_model, max_refine, round_idx, 
         
     return ret
 
-def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::", round_idx=0, max_refine=3, max_workers=20):
+def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="local::", round_idx=0, max_refine=3, max_workers=20,config_path="config.yaml"):
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            CFG = yaml.safe_load(f)
+    else:
+        print(f"[Warning] Config file {config_path} not found! Using empty dict.")
+        CFG = {}
     os.makedirs(out_dir, exist_ok=True)
     
     critic_cfg = CFG.get("default", {}).get("critic", {})
@@ -237,6 +243,7 @@ def run_inner_loop(n_questions=20, out_dir="outputs/round_tmp", model_spec="loca
     # 结构: { "prompt_text_A": {"hard": [], "easy": []}, "prompt_text_B": ... }
     grouped_candidates = defaultdict(lambda: {"hard": [], "easy": []})
     
+
     for item in questions_candidates:
         p = item["prompt"]
         l = item["label"] # "hard" or "easy"
@@ -288,7 +295,8 @@ if __name__ == "__main__":
     parser.add_argument("--round", type=int, default=0)
     parser.add_argument("--max_refine", type=int, default=3)
     parser.add_argument("--workers", type=int, default=20, help="Parallel workers count") 
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     args = parser.parse_args()
     
     ms = args.model_spec or os.environ.get("CURRENT_MODEL") or "local::/path/to/model"
-    run_inner_loop(args.n_questions, args.out_dir, ms, args.round, args.max_refine, args.workers)
+    run_inner_loop(args.n_questions, args.out_dir, ms, args.round, args.max_refine, args.workers, config_path=args.config)
