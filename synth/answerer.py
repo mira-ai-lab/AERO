@@ -18,7 +18,6 @@ Problem:
 """
 
 def answer_question(question: str, model_spec: str, max_tokens=1500, temp=0.3):
-    # Slightly increased temp (0.3) for richer Chain of Thought; increased max_tokens for detailed steps
     prompt = f"{ANSWER_SYSTEM_PROMPT}{question}\n\nPlease begin your complete solution:"
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=temp)
 
@@ -42,14 +41,12 @@ Please execute the following operations:
 """
 
 def self_refine(question: str, current_answer: str, critic_feedback: str, model_spec: str, max_tokens=1500):
-    # Build Prompt with clear separation of context
     prompt = (
         f"{REFINE_SYSTEM_PROMPT}\n"
         f"### Original Problem\n{question}\n\n"
         f"### Previous Solution\n{current_answer}\n\n"
         f"### Critic's Review Report (JSON)\n{critic_feedback}\n\n"
-        f"### Corrected Complete Solution\n"  # Guide the model to start outputting the solution directly
+        f"### Corrected Complete Solution\n"
     )
     
-    # Temperature set to 0.1 to ensure the correction process is strictly rigorous and non-divergent
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=0.1)

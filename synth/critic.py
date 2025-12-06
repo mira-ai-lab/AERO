@@ -7,7 +7,6 @@ import re
 os.environ['http_proxy'] = ''
 os.environ['https_proxy'] = ''
 
-# 配置 OpenAI Client
 base_url = "http://yy.dbh.baidu-int.com/v1"
 client = OpenAI(
     api_key="sk-HsDcdnIrzLa2ywPYZsYESgsJhohPiw8SgvZ7zY8phJlARIeT",
@@ -86,7 +85,8 @@ def _call_openai(prompt, model, max_tokens=10240):
             model=model,
             messages=[{"role":"user","content":prompt}],
             temperature=0.0,
-            max_tokens=40960
+            max_tokens=10240
+            # when R1:40960
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -218,7 +218,7 @@ def verify_answer(answer: str, question: str, model_spec="deepseek-r1-250528"):
     }
 
 def check_answer_equivalence(question: str, ground_truth: str, candidate: str, model_spec: str):
-    """Local 模型进行廉价对比"""
+    """Local 模型进行快速对比"""
     if not ground_truth: return {"passed": False, "reason": "No Gold"}
     
     prompt = EQUIVALENCE_PROMPT.format(question=question, ground_truth=ground_truth, candidate=candidate)

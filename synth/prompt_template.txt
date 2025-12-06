@@ -4,7 +4,7 @@ You excel at designing physics exam questions that are logically rigorous with a
 
 # Task
 Please generate a medium-to-hard difficulty physics competition problem based on University Physics.
-**Specifically, the problem MUST focus on the following domain: {focus}**
+Specifically, the problem MUST focus on the following domain: {focus}
 
 # Constraints
 1.  **Calculation Requirements**: The problem must include specific numerical conditions, and the solution process must involve multi-step derivations.

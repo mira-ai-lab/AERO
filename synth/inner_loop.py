@@ -74,7 +74,7 @@ def run_refinement_loop(question, initial_answer, critic_model_spec, ground_trut
     return {
         "final_answer": final_answer,
         "status": status,
-        "initial_critique_raw": critique_data["raw_output"],
+        "initial_critique_raw": initial_critique_raw,
         "initial_critique_prompt": initial_critique_prompt,
         "trajectory": trajectory
     }
@@ -149,7 +149,7 @@ def process_single_question(q, model_spec, oracle_model, max_refine, round_idx, 
                         critic_model_spec=model_spec, 
                         ground_truth=oracle_gold, 
                         use_gold_for_critique=False, # 盲批
-                        max_refine=max_refine
+                        max_refine=1    #这里是为了保证critic的prompt一致 只refine一次。
                     )
                     
                     if "pass" in run["status"]:

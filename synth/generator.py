@@ -9,21 +9,31 @@ from tqdm import tqdm
 
 PROMPT_FILE = "synth/prompt_template.txt"
 
-# [新增] 定义丰富且细分的物理领域列表
+# # [新增] 定义丰富且细分的物理领域列表
+# PHYSICS_TOPICS = [
+#     "Atomic Physics (Bohr model, hydrogen atom, energy levels, spectral lines, fine structure)",
+#     "Classical Electromagnetism (Electrostatics, Gauss's Law, magnetostatics, Ampere's Law, Maxwell's equations)",
+#     "Classical Mechanics (Newton's laws, kinematics, dynamics, work and energy, momentum, collisions)",
+#     "Electrodynamics (Electromagnetic waves, radiation, special relativity in electrodynamics, potentials)",
+#     "Geometrical Optics (Reflection, refraction, lenses, mirrors, optical instruments, ray tracing)",
+#     "Quantum Mechanics (Schrödinger equation, wave functions, operators, uncertainty principle, harmonic oscillator)",
+#     "Relativity (Special relativity, time dilation, length contraction, Lorentz transformations, energy-momentum relation)",
+#     "Semiconductor Physics (Band theory, pn junctions, transistors, carrier transport, doping)",
+#     "Solid-State Physics (Crystal structure, lattice vibrations, thermal properties, electronic properties of solids)",
+#     "Statistical Mechanics (Ensembles, partition functions, Boltzmann distribution, thermodynamic probabilities, quantum statistics)",
+#     "Theoretical Mechanics (Lagrangian mechanics, Hamiltonian mechanics, generalized coordinates, principle of least action)",
+#     "Thermodynamics (Laws of thermodynamics, entropy, heat engines, phase transitions, thermodynamic potentials)",
+#     "Wave Optics (Interference, diffraction, polarization, coherence, double-slit experiment)"
+# ]
 PHYSICS_TOPICS = [
-    "Atomic Physics (Bohr model, hydrogen atom, energy levels, spectral lines, fine structure)",
-    "Classical Electromagnetism (Electrostatics, Gauss's Law, magnetostatics, Ampere's Law, Maxwell's equations)",
-    "Classical Mechanics (Newton's laws, kinematics, dynamics, work and energy, momentum, collisions)",
-    "Electrodynamics (Electromagnetic waves, radiation, special relativity in electrodynamics, potentials)",
-    "Geometrical Optics (Reflection, refraction, lenses, mirrors, optical instruments, ray tracing)",
-    "Quantum Mechanics (Schrödinger equation, wave functions, operators, uncertainty principle, harmonic oscillator)",
-    "Relativity (Special relativity, time dilation, length contraction, Lorentz transformations, energy-momentum relation)",
-    "Semiconductor Physics (Band theory, pn junctions, transistors, carrier transport, doping)",
-    "Solid-State Physics (Crystal structure, lattice vibrations, thermal properties, electronic properties of solids)",
-    "Statistical Mechanics (Ensembles, partition functions, Boltzmann distribution, thermodynamic probabilities, quantum statistics)",
-    "Theoretical Mechanics (Lagrangian mechanics, Hamiltonian mechanics, generalized coordinates, principle of least action)",
-    "Thermodynamics (Laws of thermodynamics, entropy, heat engines, phase transitions, thermodynamic potentials)",
-    "Wave Optics (Interference, diffraction, polarization, coherence, double-slit experiment)"
+    "Classical Mechanics",
+    "Electromagnetism",
+    "Thermodynamics",
+    "Statistical Mechanics",
+    "Quantum Mechanics",
+    "Relativity",
+    "Wave and Optics",
+    "Solid State Physics"
 ]
 
 def load_prompt_template():
