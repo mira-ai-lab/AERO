@@ -3,50 +3,54 @@ from local_model.local_model_interface import generate
 import json
 
 # ==========================================
-# 1. Initial Answer Prompt (Answerer)
+# 1. Answer Prompt (Updated)
 # ==========================================
-ANSWER_SYSTEM_PROMPT = """You are an expert-level Teaching Assistant proficient in University Physics. Your task is to provide logically rigorous and computationally precise solutions to physics problems.
+ANSWER_SYSTEM_PROMPT = """You are an expert-level Teaching Assistant proficient in University Physics. 
+Your task is to provide logically rigorous and computationally precise solutions to physics problems.
+
+Please reason step by step, and put your final answer within \\boxed{}.
 
 Please strictly follow this standardized problem-solving process:
-1. **Model Analysis**: Briefly describe the physical model involved and the force/energy analysis.
-2. **Symbol Definition**: List the known quantities (values + units) and the target variables provided in the problem.
-3. **Formula Derivation**: Establish equations based on physical theorems. Prioritize symbolic manipulation to derive the analytical expression for the target variable *before* substituting any numbers.
-4. **Numerical Calculation**: Substitute values into the analytical expression. Pay attention to significant figures and unit conversion (use SI units uniformly).
-5. **Final Result**: Clearly state the final answer and display it on a separate line in bold.
+1. **Model Analysis**: Briefly describe the physical model involved.
+2. **Symbol Definition**: List known quantities and target variables.
+3. **Formula Derivation**: Establish equations and derive the analytical expression.
+4. **Numerical Calculation**: Substitute values.
+5. **Final Result**: Ensure the final answer is explicitly wrapped in \\boxed{}.
+   Example: The final energy is \\boxed{42 J}.
 
 Problem:
 """
 
-def answer_question(question: str, model_spec: str, max_tokens=1500, temp=0.3):
+def answer_question(question: str, model_spec: str, max_tokens=2048, temp=0.7):
     prompt = f"{ANSWER_SYSTEM_PROMPT}{question}\n\nPlease begin your complete solution:"
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=temp)
 
 
 # ==========================================
-# 2. Self-Refinement Prompt (Refiner)
+# 2. Self-Correction / Attack Prompt
 # ==========================================
-REFINE_SYSTEM_PROMPT = """You are correcting a physics solution via a "Self-Reflection" mechanism.
-You will be presented with: The Original Problem, Your Previous Solution, and a Review Report (in JSON format) from a strict Critic.
+ATTACK_SYSTEM_PROMPT = """You are a rigorous Physics Reviewer. 
+You are provided with a Problem and a Candidate Solution.
+The Candidate Solution is suspected to be **INCORRECT**.
 
-Please execute the following operations:
-1. **Analyze the Review Report**:
-   - If `critical_errors` is NOT empty: This means your previous solution contains **factual errors** (e.g., wrong formula, calculation error). You must **completely abandon** the erroneous path, re-think, and solve from scratch.
-   - If there are only `suggestions`: This means the solution is generally correct but requires optimization in steps or logic.
+Your Task:
+1. Assume the Candidate Solution is wrong.
+2. Carefully check the derivation steps, physical principles applied, and calculations.
+3. Find the flaw (it might be subtle).
+4. **Solve the problem again from scratch** to provide the correct solution.
+5. You MUST put your new final answer within \\boxed{}.
 
-2. **Execute Correction**:
-   - Do not explain what you did wrong, and do not just write the corrected part.
-   - **You must output a COMPLETE, INDEPENDENT, and CORRECTED solution**.
-   - Maintain the same high-standard structure as the initial solution (Model Analysis -> Formula Derivation -> Numerical Calculation).
-
+Output Format:
+Thinking Process: <Analyze where the error might be>
+Correct Solution: <Full derivation>
+Final Answer: \\boxed{<The corrected result>}
 """
 
-def self_refine(question: str, current_answer: str, critic_feedback: str, model_spec: str, max_tokens=1500):
+def self_correct(question: str, bad_answer: str, model_spec: str, max_tokens=2048):
     prompt = (
-        f"{REFINE_SYSTEM_PROMPT}\n"
-        f"### Original Problem\n{question}\n\n"
-        f"### Previous Solution\n{current_answer}\n\n"
-        f"### Critic's Review Report (JSON)\n{critic_feedback}\n\n"
-        f"### Corrected Complete Solution\n"
+        f"{ATTACK_SYSTEM_PROMPT}\n"
+        f"### Problem\n{question}\n\n"
+        f"### Suspected Incorrect Solution\n{bad_answer}\n\n"
+        f"### Your Correction\n"
     )
-    
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=0.1)

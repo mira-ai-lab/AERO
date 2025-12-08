@@ -1,6 +1,6 @@
 __pycache__/
 *.log
-dpo_data/
+kto_data/
 outputs*/
 models*/
 saves/
