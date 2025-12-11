@@ -9,9 +9,8 @@ Specifically, the problem MUST focus on the following domain: {focus}
 # Constraints
 1.  **Calculation Requirements**: The problem must include specific numerical conditions, and the solution process must involve multi-step derivations.
     The numerical values should be designed to yield neat results (e.g., integers or simple fractions) to facilitate verification.
-2.  **Knowledge Domain Variety**: The problem should randomly span different physics domains, including but not limited to: Mechanics, Electromagnetism, Thermodynamics, Optics, Waves, Modern Physics, and Relativity. Avoid always sticking to one domain.
-3.  **Language**: English (use standard and professional physics terminology).
-4.  **Formatting Constraints**: You must output strict JSON format.
+2.  **Language**: English (use standard and professional physics terminology).
+3.  **Formatting Constraints**: You must output strict JSON format.
     It is strictly forbidden to use Markdown code block markers (such as ```json) or include any text, preambles, or remarks outside of the JSON object.
 
 # JSON Structure
@@ -19,7 +18,6 @@ Specifically, the problem MUST focus on the following domain: {focus}
   "question": "Here is the complete problem description, including all necessary physical constants and initial values...",
   "meta": {
     "knowledge_points": ["Knowledge Point 1", "Knowledge Point 2"],
-    "domain": "Specify the physics domain of this problem (e.g., Mechanics, Thermodynamics, etc.)",
     "background": "Here is a 1-2 sentence description of the problem background..."
   }
 }

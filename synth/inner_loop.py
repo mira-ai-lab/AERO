@@ -53,13 +53,21 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
     # ==========================================
     # 逻辑：Bimodal (适中) -> Positive; Consistent (太简)/Chaotic (太难) -> Negative
     if q_gen_prompt_text:
-        is_good_question = (status == "bimodal")
-        kto_data_points.append({
-            "prompt": q_gen_prompt_text,
-            "completion": question_text,
-            "label": is_good_question,
-            "type": "question_generation" # 标记类型，便于调试
-        })
+        if status == "bimodal": 
+            kto_data_points.append({
+                "prompt": q_gen_prompt_text,
+                "completion": question_text,
+                "label": "true",
+                "type": "question_generation"
+            })
+        
+        if status == "consistent" or status == "chaotic":
+            kto_data_points.append({
+                "prompt": q_gen_prompt_text,
+                "completion": question_text,
+                "label": "false",
+                "type": "question_generation"
+            })
 
     # ==========================================
     # B. 进入 Self-Correction 流程 (仅针对 Bimodal)

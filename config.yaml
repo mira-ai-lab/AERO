@@ -3,7 +3,7 @@ default:
   initial_model: "http::http://localhost:8001"
   init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
   
-  rounds: 10
+  rounds: 5
   questions_per_round: 1000
   
   sampling_n: 16       # 每个问题生成 N 个回答

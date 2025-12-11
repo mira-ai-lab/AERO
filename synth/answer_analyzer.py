@@ -169,21 +169,18 @@ def analyze_distribution(clusters_data):
     if total == 0:
         return "chaotic"
     
-    # 计算 Top 1 答案的占比
     top1_ratio = clusters[0]["count"] / total
+    top2_ratio = clusters[1]["count"] / total
     
-    # Case A: Consistent (太简单 / 一致性太高)
-    # 如果超过 80% 的采样都一致，说明题目对模型来说太简单，没有区分度
-    if top1_ratio > 0.8:
+    if top1_ratio > 0.9 :
         return "consistent"
-        
-    # Case B: Bimodal (好问题 / 难度适中)
-    # Top 1 占比在 30% 到 80% 之间。
-    # 这意味着存在分歧（不是 100%），但又不是完全乱猜（至少有一个答案占据了主流）。
-    # 注意：只要 Top1 < 1.0，clusters 长度必然 >= 2，所以直接返回 bimodal 是安全的。
-    if top1_ratio >= 0.3:
+    
+    if top1_ratio < 0.2:
+        return "chaotic"
+
+    if top1_ratio >= 0.3 and top1_ratio <= 0.6 and top1_ratio + top2_ratio >= 0.6:
         return "bimodal"
             
     # Case C: Chaotic (太难 / 发散)
     # Top 1 占比低于 30%，说明模型完全在乱猜，没有形成共识
-    return "chaotic"
+    return "drop"
