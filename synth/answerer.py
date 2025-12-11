@@ -21,7 +21,7 @@ Please strictly follow this standardized problem-solving process:
 Problem:
 """
 
-def answer_question(question: str, model_spec: str, max_tokens=2048, temp=0.7):
+def answer_question(question: str, model_spec: str, max_tokens=4096, temp=0.7):
     prompt = f"{ANSWER_SYSTEM_PROMPT}{question}\n\nPlease begin your complete solution:"
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=temp)
 
@@ -46,7 +46,7 @@ Correct Solution: <Full derivation>
 Final Answer: \\boxed{<The corrected result>}
 """
 
-def self_correct(question: str, bad_answer: str, model_spec: str, max_tokens=2048):
+def self_correct(question: str, bad_answer: str, model_spec: str, max_tokens=4096):
     prompt = (
         f"{ATTACK_SYSTEM_PROMPT}\n"
         f"### Problem\n{question}\n\n"

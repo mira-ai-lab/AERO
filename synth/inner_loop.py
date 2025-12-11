@@ -210,3 +210,16 @@ def run_inner_loop(n_questions, out_dir, model_spec, round_idx, workers, config_
     print(f"Details: {type_counts}")
     
     # 备份到根目录的 kto_data
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out_dir", type=str, default="outputs/round_tmp")
+    parser.add_argument("--n_questions", type=int, default=20)
+    parser.add_argument("--model_spec", type=str, default=None)
+    parser.add_argument("--round", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=20, help="Parallel workers count") 
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    args = parser.parse_args()
+    
+    ms = args.model_spec or os.environ.get("CURRENT_MODEL") or "local::/path/to/model"
+    run_inner_loop(args.n_questions, args.out_dir, ms, args.round, args.workers, config_path=args.config)

@@ -18,7 +18,9 @@ def extract_boxed_content(text):
     start_marker = "\\boxed{"
     start_indices = [m.start() for m in re.finditer(re.escape(start_marker), text)]
     
+    # [Case 1] 根本没有找到 \boxed
     if not start_indices:
+        print(f"\n[Extract Failed] No '\\boxed{{' found. Text tail:\n...{text[-500:]}\n")
         return None
     
     # 我们只需要最后一个 boxed，但为了稳健，可以从后往前找，找到第一个合法的就返回
@@ -43,6 +45,8 @@ def extract_boxed_content(text):
             
             cursor += 1
             
+    # [Case 2] 找到了 \boxed 但括号没有正确闭合（通常是因为 max_tokens 截断）
+    print(f"\n[Extract Failed] Found '\\boxed{{' but braces not closed. Text tail:\n...{text[-500:]}\n")
     return None
 
 # ==========================================
@@ -70,7 +74,7 @@ def check_equivalence_with_model(expr_a, expr_b, model_spec):
     prompt = EQUIVALENCE_PROMPT.format(expr_a=expr_a, expr_b=expr_b)
     try:
         # max_tokens 很小即可，温度为 0
-        raw = generate(model_spec, prompt, max_tokens=128, temperature=0.0)
+        raw = generate(model_spec, prompt, max_tokens=1024, temperature=0.0)
         # 简单的解析，防止模型废话
         if '"equivalent": true' in raw.lower() or "'equivalent': true" in raw.lower():
             return True
@@ -155,27 +159,31 @@ def cluster_answers_with_model(answers, model_spec):
 
 def analyze_distribution(clusters_data):
     """
-    根据聚类结果判定：Consistent / Bimodal / Chaotic
+    [修改版] 简化逻辑：只看 Top 1 的占比。
+    如果 Top 1 占比在 0.3 到 0.8 之间，认为是好问题 (Bimodal)。
     """
     clusters = clusters_data["clusters"]
-    total = clusters_data["total_valid"] # 只看有效提取的
+    total = clusters_data["total_valid"] 
     
+    # 异常情况：没有提取到任何有效答案
     if total == 0:
         return "chaotic"
     
-    # Top 1 占比
+    # 计算 Top 1 答案的占比
     top1_ratio = clusters[0]["count"] / total
     
-    # Case A: Consistent (Too Easy)
-    if top1_ratio > 0.85:
+    # Case A: Consistent (太简单 / 一致性太高)
+    # 如果超过 80% 的采样都一致，说明题目对模型来说太简单，没有区分度
+    if top1_ratio > 0.8:
         return "consistent"
         
-    # Case B: Bimodal (Good Difficulty)
-    if len(clusters) >= 2:
-        top2_ratio = clusters[1]["count"] / total
-        # 前两名加起来统治了绝大部分，且第二名不是噪音
-        if (top1_ratio + top2_ratio > 0.75) and (top2_ratio > 0.15):
-            return "bimodal"
+    # Case B: Bimodal (好问题 / 难度适中)
+    # Top 1 占比在 30% 到 80% 之间。
+    # 这意味着存在分歧（不是 100%），但又不是完全乱猜（至少有一个答案占据了主流）。
+    # 注意：只要 Top1 < 1.0，clusters 长度必然 >= 2，所以直接返回 bimodal 是安全的。
+    if top1_ratio >= 0.3:
+        return "bimodal"
             
-    # Case C: Chaotic (Too Hard / Divergent)
+    # Case C: Chaotic (太难 / 发散)
+    # Top 1 占比低于 30%，说明模型完全在乱猜，没有形成共识
     return "chaotic"

@@ -51,7 +51,7 @@ def restart_vllm_service(model_path: str, port: int):
     time.sleep(2)
     
     cmd = (f"CUDA_VISIBLE_DEVICES={TRAIN_GPUS} nohup vllm serve {model_path} "
-           f"--port {port} --max-model-len 8192 --tensor-parallel-size 1 "
+           f"--port {port} --max-model-len 15360 --tensor-parallel-size 1 "
            f"--gpu-memory-utilization 0.9 --served-model-name psp_model " 
            f"> vllm_{EXP_NAME}.log 2>&1 &")
     subprocess.run(cmd, shell=True)
@@ -123,8 +123,17 @@ def prepare_kto_data_for_llamafactory(round_idx, llama_factory_dir):
     
     info[dataset_name] = {
         "file_name": file_name,
-        "kto_tag": "label",  # LLaMA-Factory KTO standard
-        "columns": {"messages": "messages", "label": "label"}
+        "formatting": "sharegpt",  
+        "columns": {
+            "messages": "messages",
+            "kto_tag": "label"    
+        },
+        "tags": {
+            "role_tag": "role",        
+            "content_tag": "content",   
+            "user_tag": "user",         
+            "assistant_tag": "assistant"
+        }
     }
     
     with open(info_path, 'w') as f: json.dump(info, f, indent=4)
@@ -149,6 +158,7 @@ def run_outer_loop(base_model_path: str, round_idx: int):
     # 确保是 KTO stage
     cfg["stage"] = "kto" 
     
+    cfg["dataset_dir"] = "LLaMA-Factory/data"
     with open(train_yaml_path, 'w') as f: yaml.dump(cfg, f)
         
     # Train
