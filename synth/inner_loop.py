@@ -57,7 +57,7 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
             kto_data_points.append({
                 "prompt": q_gen_prompt_text,
                 "completion": question_text,
-                "label": "true",
+                "label": True,
                 "type": "question_generation"
             })
         
@@ -65,7 +65,7 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
             kto_data_points.append({
                 "prompt": q_gen_prompt_text,
                 "completion": question_text,
-                "label": "false",
+                "label": False,
                 "type": "question_generation"
             })
 
