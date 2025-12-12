@@ -3,11 +3,18 @@ default:
   initial_model: "http::http://localhost:8001"
   init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
   
-  rounds: 5
+  rounds: 10
   questions_per_round: 1000
   
   sampling_n: 16       # 每个问题生成 N 个回答
   sampling_temp: 0.7   # 采样温度，保证多样性
+
+  replay_pool_size: 500
+  
+  kto_replay_ratios:
+    answer_solver: 0.5
+    answer_refiner: 0.3
+    question_generation: 0.2
 
   llama_factory_dir: "LLaMA-Factory"
   kto_gpus: "4,5"

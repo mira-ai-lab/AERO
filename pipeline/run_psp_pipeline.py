@@ -3,8 +3,9 @@
 import argparse
 import os, json, yaml, subprocess, time, requests, shutil
 from datetime import datetime
+import glob
+import random
 from utils.io import read_jsonl
-# [Change] 导入 KTO 转换工具
 from utils.make_kto_data import convert_to_kto_format
 
 os.environ['http_proxy'] = ''
@@ -72,12 +73,80 @@ def stop_vllm_service(port: int):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
     time.sleep(5)
 
+# -------------------- [新增函数: 数据回放聚合] --------------------
+def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, replay_ratios): 
+    """
+    聚合所有历史轮次的 KTO 数据，根据 replay_ratios 进行比例采样，并与当前轮次数据合并。
+    """
+    all_historical_data = []
+    
+    # 1. 收集所有历史轮次 (1 到 current_round_idx - 1) 的 KTO 数据
+    for r in range(1, current_round_idx): 
+        kto_path = os.path.join(exp_root, f"outputs/round_{r}", "kto_data.jsonl")
+        if os.path.exists(kto_path):
+            try:
+                data = read_jsonl(kto_path)
+                all_historical_data.extend(data)
+            except Exception as e:
+                print(f"Error reading historical KTO data from {kto_path}: {e}")
+
+    # 2. 按类型分组历史数据
+    historical_groups = {}
+    for item in all_historical_data:
+        # 使用 item.get("type", "unknown") 确保键存在
+        data_type = item.get("type", "unknown")
+        if data_type not in historical_groups:
+            historical_groups[data_type] = []
+        historical_groups[data_type].append(item)
+        
+    print(f"[KTO Data] Historical data collected: {len(all_historical_data)}. Grouped by type: {[f'{k}:{len(v)}' for k, v in historical_groups.items()]}")
+
+    # 3. 根据比例进行采样
+    replay_data = []
+    total_historical_samples = 0
+    sampled_counts = {}
+
+    # 归一化比例
+    total_ratio = sum(replay_ratios.values())
+    if total_ratio == 0:
+        print("[KTO Data] Warning: Total replay ratios sum to zero. No historical data will be replayed.")
+    
+    for data_type, ratio in replay_ratios.items():
+        if data_type in historical_groups and total_ratio > 0:
+            pool = historical_groups[data_type]
+            # 计算目标采样数：总回放池大小 * 归一化后的比例
+            normalized_ratio = ratio / total_ratio
+            target_count = int(replay_pool_size * normalized_ratio)
+            
+            # 实际采样数：取池子大小和目标计数的最小值
+            actual_count = min(len(pool), target_count)
+            
+            if actual_count > 0:
+                # 随机采样
+                random.shuffle(pool)
+                replay_data.extend(pool[:actual_count])
+                total_historical_samples += actual_count
+                sampled_counts[data_type] = actual_count
+                
+    print(f"[KTO Data] Sampled historical data: {total_historical_samples}. Details: {sampled_counts}")
+    
+    # 4. 收集当前轮次的数据
+    current_kto_path = os.path.join(exp_root, f"outputs/round_{current_round_idx}", "kto_data.jsonl")
+    current_data = read_jsonl(current_kto_path)
+    
+    # 5. 合并新数据和回放数据
+    final_dataset = current_data + replay_data
+    
+    print(f"[KTO Data] Total samples before weighting in Round {current_round_idx}: {len(final_dataset)} (New: {len(current_data)}, Replay: {total_historical_samples})")
+    
+    return final_dataset
+
 def run_inner_loop(current_model, round_idx):
     print(f"[Round {round_idx}] 🚀 Inner Loop (Model: {current_model})")
     out_dir = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}")
     os.makedirs(out_dir, exist_ok=True)
     
-    marker = os.path.join(out_dir, "kto_data.jsonl")
+    marker = os.path.join(out_dir, "inner_logs.jsonl")
     kto_data_dir = os.path.join(EXP_ROOT, "kto_data")
     os.makedirs(kto_data_dir, exist_ok=True)
 
@@ -95,17 +164,25 @@ def run_inner_loop(current_model, round_idx):
         ]
         subprocess.run(cmd, check=True, env=env)
         
-        # Copy results
-        shutil.copy(os.path.join(out_dir, "kto_data.jsonl"), os.path.join(kto_data_dir, "kto_data.jsonl"))
     else:
         print("[Skipping generation, data exists]")
 
+    replay_pool_size = CFG["default"].get("replay_pool_size", 500)
+    replay_ratios = CFG["default"].get("kto_replay_ratios", {
+        "answer_solver": 0.5, 
+        "answer_refiner": 0.3, 
+        "question_generation": 0.2
+    })
+    final_kto_dataset = aggregate_kto_for_replay(EXP_ROOT, round_idx, replay_pool_size, replay_ratios)
+
+    master_kto_path = os.path.join(kto_data_dir, "kto_data.jsonl")
+    write_jsonl(master_kto_path, final_kto_dataset)
+
     # Convert to KTO format
     convert_to_kto_format(
-        os.path.join(kto_data_dir, "kto_data.jsonl"), 
+        master_kto_path, 
         os.path.join(kto_data_dir, "kto_final.json")
     )
-
 def prepare_kto_data_for_llamafactory(round_idx, llama_factory_dir):
     dataset_name = f"{EXP_NAME}_kto_round_{round_idx}"
     file_name = f"{dataset_name}.json"
