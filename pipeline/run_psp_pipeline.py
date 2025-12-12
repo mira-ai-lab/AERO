@@ -221,6 +221,7 @@ def main():
         save_state(state)
         
     print("🎯 Pipeline Finished.")
+    stop_vllm_service(VLLM_PORT)
 
 if __name__ == "__main__":
     main()
