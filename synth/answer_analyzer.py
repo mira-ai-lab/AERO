@@ -209,7 +209,7 @@ def analyze_distribution(clusters_data):
         return "consistent"
     
     if entropy <= 1.5:
-=        return "bimodal"
+        return "bimodal"
     
     if entropy > 2.5:
         return "chaotic"

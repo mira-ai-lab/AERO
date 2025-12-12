@@ -5,7 +5,7 @@ import os, json, yaml, subprocess, time, requests, shutil
 from datetime import datetime
 import glob
 import random
-from utils.io import read_jsonl
+from utils.io import read_jsonl, write_jsonl
 from utils.make_kto_data import convert_to_kto_format
 
 os.environ['http_proxy'] = ''
@@ -73,7 +73,43 @@ def stop_vllm_service(port: int):
     subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
     time.sleep(5)
 
-# -------------------- [新增函数: 数据回放聚合] --------------------
+# -------------------- [新增函数: 权重应用和数据复制] --------------------
+def apply_weights_and_replicate(kto_data: list, weights: dict) -> list:
+    weighted_data = []
+    
+    default_weight = 1.0 
+
+    for item in kto_data:
+        data_type = item.get("type", "unknown")
+        # 根据配置获取权重
+        weight = weights.get(data_type, default_weight)
+        
+        # 权重小于等于 0 则忽略该数据点
+        if weight <= 0:
+            continue
+            
+        # 1. 保证的复制次数 (整数部分)
+        base_copies = int(weight)
+        
+        # 2. 额外复制的概率 (小数部分)
+        extra_copy_prob = weight - base_copies 
+        
+        num_copies = base_copies
+        if random.random() < extra_copy_prob:
+            num_copies += 1
+            
+        # 确保原始数据至少被保留一次（如果 weight 介于 0 到 1 之间）
+        if num_copies == 0 and weight > 0:
+             num_copies = 1 
+             
+        # 复制数据
+        for _ in range(num_copies):
+            weighted_data.append(item)
+            
+    print(f"[KTO Data] Applied weights. Total samples after replication: {len(weighted_data)}")
+    return weighted_data
+
+# -------------------- [数据回放聚合 - 保持不变，但增加读取当前轮次数据的健壮性] --------------------
 def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, replay_ratios): 
     """
     聚合所有历史轮次的 KTO 数据，根据 replay_ratios 进行比例采样，并与当前轮次数据合并。
@@ -93,7 +129,6 @@ def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, repl
     # 2. 按类型分组历史数据
     historical_groups = {}
     for item in all_historical_data:
-        # 使用 item.get("type", "unknown") 确保键存在
         data_type = item.get("type", "unknown")
         if data_type not in historical_groups:
             historical_groups[data_type] = []
@@ -114,15 +149,11 @@ def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, repl
     for data_type, ratio in replay_ratios.items():
         if data_type in historical_groups and total_ratio > 0:
             pool = historical_groups[data_type]
-            # 计算目标采样数：总回放池大小 * 归一化后的比例
             normalized_ratio = ratio / total_ratio
             target_count = int(replay_pool_size * normalized_ratio)
-            
-            # 实际采样数：取池子大小和目标计数的最小值
             actual_count = min(len(pool), target_count)
             
             if actual_count > 0:
-                # 随机采样
                 random.shuffle(pool)
                 replay_data.extend(pool[:actual_count])
                 total_historical_samples += actual_count
@@ -132,7 +163,8 @@ def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, repl
     
     # 4. 收集当前轮次的数据
     current_kto_path = os.path.join(exp_root, f"outputs/round_{current_round_idx}", "kto_data.jsonl")
-    current_data = read_jsonl(current_kto_path)
+    # 确保当前轮次的文件不存在时返回空列表
+    current_data = read_jsonl(current_kto_path) if os.path.exists(current_kto_path) else [] 
     
     # 5. 合并新数据和回放数据
     final_dataset = current_data + replay_data
@@ -173,8 +205,16 @@ def run_inner_loop(current_model, round_idx):
         "answer_refiner": 0.3, 
         "question_generation": 0.2
     })
-    final_kto_dataset = aggregate_kto_for_replay(EXP_ROOT, round_idx, replay_pool_size, replay_ratios)
 
+    # 获取原始数据 (新数据 + 回放数据，按比例采样)
+    raw_kto_dataset = aggregate_kto_for_replay(EXP_ROOT, round_idx, replay_pool_size, replay_ratios)
+    
+    # [修复] 3. 应用权重并进行数据复制 (Replication)
+    # 读取权重配置，如果不存在则默认为空字典（即权重为 1.0）
+    kto_weights = CFG["default"].get("kto_weights", {})
+    final_kto_dataset = apply_weights_and_replicate(raw_kto_dataset, kto_weights)
+
+    # 4. 写入聚合/加权后的数据
     master_kto_path = os.path.join(kto_data_dir, "kto_data.jsonl")
     write_jsonl(master_kto_path, final_kto_dataset)
 
