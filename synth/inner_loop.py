@@ -31,7 +31,7 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
     responses = []
     for _ in range(n_samples):
         # 注意：这里调用 answer_question 内部会加上 ANSWER_SYSTEM_PROMPT
-        ans = answer_question(question_text, model_spec, temp=0.7)
+        ans = answer_question(question_text, model_spec, temp=0.9)
         responses.append(ans)
     
     # --- 2. 模型聚类与分布分析 ---
@@ -61,12 +61,20 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
                 "type": "question_generation"
             })
         
-        if status == "consistent" or status == "chaotic":
+        if status == "consistent":
             kto_data_points.append({
                 "prompt": q_gen_prompt_text,
                 "completion": question_text,
                 "label": False,
-                "type": "question_generation"
+                "type": "question_generation_consistent"
+            })
+        
+        if status == "chaotic":
+            kto_data_points.append({
+                "prompt": q_gen_prompt_text,
+                "completion": question_text,
+                "label": False,
+                "type": "question_generation_chaotic"
             })
 
     # ==========================================

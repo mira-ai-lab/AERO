@@ -158,34 +158,6 @@ def cluster_answers_with_model(answers, model_spec):
         "total_samples": total_samples
     }
 
-# def analyze_distribution(clusters_data):
-#     """
-#     [修改版] 简化逻辑：只看 Top 1 的占比。
-#     如果 Top 1 占比在 0.3 到 0.8 之间，认为是好问题 (Bimodal)。
-#     """
-#     clusters = clusters_data["clusters"]
-#     total = clusters_data["total_valid"] 
-    
-#     # 异常情况：没有提取到任何有效答案
-#     if total == 0:
-#         return "chaotic"
-    
-#     top1_ratio = clusters[0]["count"] / total
-#     top2_ratio = clusters[1]["count"] / total
-    
-#     if top1_ratio > 0.9 :
-#         return "consistent"
-    
-#     if top1_ratio < 0.2:
-#         return "chaotic"
-
-#     if top1_ratio >= 0.3 and top1_ratio <= 0.6 and top1_ratio + top2_ratio >= 0.6:
-#         return "bimodal"
-            
-#     # Case C: Chaotic (太难 / 发散)
-#     # Top 1 占比低于 30%，说明模型完全在乱猜，没有形成共识
-#     return "drop"
-
 def analyze_distribution(clusters_data):
     """
     利用香农熵 (Shannon Entropy) 来评估答案分布的难度和质量。
@@ -205,13 +177,13 @@ def analyze_distribution(clusters_data):
         if p_i > 0:
             entropy -= p_i * math.log2(p_i) 
     
-    if entropy < 0.4:
+    if entropy <= 0:
         return "consistent"
     
-    if entropy <= 1.5:
+    if entropy > 0.3 and entropy < 2.5:
         return "bimodal"
     
-    if entropy > 2.5:
+    if entropy >= 3.5:
         return "chaotic"
             
     return "drop"
