@@ -173,6 +173,53 @@ def aggregate_kto_for_replay(exp_root, current_round_idx, replay_pool_size, repl
     
     return final_dataset
 
+# pipeline/run_psp_pipeline.py
+
+def get_data_by_type_from_round(exp_root, round_idx, target_types):
+    """
+    从指定轮次读取数据，并根据 type 过滤。
+    """
+    kto_path = os.path.join(exp_root, f"outputs/round_{round_idx}", "kto_data.jsonl")
+    if not os.path.exists(kto_path):
+        return []
+    
+    data = read_jsonl(kto_path)
+    filtered = [d for d in data if d.get("type") in target_types]
+    return filtered
+
+def aggregate_staggered_data(exp_root, current_round_idx, config):
+    """
+    实现你的机制：
+    - Question Data: 来自 Current Round (N)
+    - Solver Data: 来自 Previous Round (N-1)
+    """
+    combined_data = []
+    
+    # 定义哪些 type 属于 Generator，哪些属于 Solver
+    gen_types = ["question_generation", "question_generation_consistent", "question_generation_chaotic"]
+    solver_types = ["answer_solver", "answer_refiner"]
+
+    # 1. 获取当前轮 (N) 的 Generator 数据
+    # 这部分数据反映了模型在当前能力下对题目难度的探索
+    current_gen_data = get_data_by_type_from_round(exp_root, current_round_idx, gen_types)
+    combined_data.extend(current_gen_data)
+    print(f"[Staggered] Loaded {len(current_gen_data)} Question-Gen samples from Round {current_round_idx}")
+
+    # 2. 获取上一轮 (N-1) 的 Solver 数据
+    # 如果是第 1 轮，N-1=0，通常没有输出数据，所以这一步会跳过，符合“第0轮只训练提问能力”
+    if current_round_idx > 1:
+        prev_round = current_round_idx - 1
+        prev_solver_data = get_data_by_type_from_round(exp_root, prev_round, solver_types)
+        combined_data.extend(prev_solver_data)
+        print(f"[Staggered] Loaded {len(prev_solver_data)} Solver samples from Round {prev_round}")
+    else:
+        print("[Staggered] Round 1: Skipping solver training (Solver data lag mechanism).")
+
+    # 3. (可选) 依然可以保留 Replay 机制，但要小心不要引入 N 轮的 Solver 数据
+    # 如果需要 Replay，建议只 Replay N-2 及之前的 Solver 数据
+    
+    return combined_data
+
 def run_inner_loop(current_model, round_idx):
     print(f"[Round {round_idx}] 🚀 Inner Loop (Model: {current_model})")
     out_dir = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}")
@@ -206,16 +253,31 @@ def run_inner_loop(current_model, round_idx):
         "question_generation": 0.2
     })
 
-    # 获取原始数据 (新数据 + 回放数据，按比例采样)
-    raw_kto_dataset = aggregate_kto_for_replay(EXP_ROOT, round_idx, replay_pool_size, replay_ratios)
+    # # 获取原始数据 (新数据 + 回放数据，按比例采样)
+    # raw_kto_dataset = aggregate_kto_for_replay(EXP_ROOT, round_idx, replay_pool_size, replay_ratios)
     
-    # [修复] 3. 应用权重并进行数据复制 (Replication)
-    # 读取权重配置，如果不存在则默认为空字典（即权重为 1.0）
-    kto_weights = CFG["default"].get("kto_weights", {})
-    final_kto_dataset = apply_weights_and_replicate(raw_kto_dataset, kto_weights)
+    # # [修复] 3. 应用权重并进行数据复制 (Replication)
+    # # 读取权重配置，如果不存在则默认为空字典（即权重为 1.0）
+    # kto_weights = CFG["default"].get("kto_weights", {})
+    # final_kto_dataset = apply_weights_and_replicate(raw_kto_dataset, kto_weights)
 
-    # 4. 写入聚合/加权后的数据
-    master_kto_path = os.path.join(kto_data_dir, "kto_data.jsonl")
+    # # 4. 写入聚合/加权后的数据
+    # master_kto_path = os.path.join(kto_data_dir, "kto_data.jsonl")
+    # write_jsonl(master_kto_path, final_kto_dataset)
+
+    # # Convert to KTO format
+    # convert_to_kto_format(
+    #     master_kto_path, 
+    #     os.path.join(kto_data_dir, "kto_final.json")
+    # )
+    staggered_dataset = aggregate_staggered_data(EXP_ROOT, round_idx, CFG)
+    
+    # 应用权重 (apply_weights_and_replicate 需要确保能处理)
+    kto_weights = CFG["default"].get("kto_weights", {})
+    final_kto_dataset = apply_weights_and_replicate(staggered_dataset, kto_weights)
+
+    # 写入文件，供 Outer Loop 读取
+    master_kto_path = os.path.join(kto_data_dir, "kto_data.jsonl") # 注意这里覆盖了
     write_jsonl(master_kto_path, final_kto_dataset)
 
     # Convert to KTO format
