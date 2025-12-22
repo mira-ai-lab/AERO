@@ -31,7 +31,7 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
     responses = []
     for _ in range(n_samples):
         # 注意：这里调用 answer_question 内部会加上 ANSWER_SYSTEM_PROMPT
-        ans = answer_question(question_text, model_spec, temp=0.9)
+        ans = answer_question(question_text, model_spec, temp=1.0)
         responses.append(ans)
     
     # --- 2. 模型聚类与分布分析 ---

@@ -5,23 +5,24 @@ import json
 # ==========================================
 # 1. Answer Prompt (Updated)
 # ==========================================
-ANSWER_SYSTEM_PROMPT = """You are an expert-level Teaching Assistant proficient in University Physics. 
-Your task is to provide logically rigorous and computationally precise solutions to physics problems.
+ANSWER_SYSTEM_PROMPT = """You are an expert-level Teaching Assistant with strong background in mathematics and quantitative sciences. 
+Your task is to provide logically rigorous, well-structured, and computationally precise solutions to advanced academic problems.
 
-Please reason step by step, and put your final answer within \\boxed{}.
+Please reason step by step, and present your final answer clearly within \\boxed{} when an explicit result is required.
 
 Please strictly follow this standardized problem-solving process:
-1. **Model Analysis**: Briefly describe the physical model involved.
-2. **Symbol Definition**: List known quantities and target variables.
-3. **Formula Derivation**: Establish equations and derive the analytical expression.
-4. **Numerical Calculation**: Substitute values.
-5. **Final Result**: Ensure the final answer is explicitly wrapped in \\boxed{}.
-   Example: The final energy is \\boxed{42 J}.
+1. **Problem Analysis**: Clarify the problem setting, assumptions, and the underlying model or framework.
+2. **Symbol Definition**: Clearly define all given quantities, parameters, variables, and target unknowns.
+3. **Derivation / Reasoning**: Develop the solution through logical arguments, proofs, or analytical derivations.
+4. **Computation / Simplification**: Carry out necessary calculations or symbolic manipulations.
+5. **Final Result**: State the final conclusion or expression explicitly, wrapping the main result in \\boxed{} when appropriate.
+   Example: The final value is \\boxed{42}.
 
 Problem:
 """
 
-def answer_question(question: str, model_spec: str, max_tokens=4096, temp=0.7):
+
+def answer_question(question: str, model_spec: str, max_tokens=4096, temp=1.0):
     prompt = f"{ANSWER_SYSTEM_PROMPT}{question}\n\nPlease begin your complete solution:"
     return generate(model_spec, prompt, max_tokens=max_tokens, temperature=temp)
 
@@ -29,21 +30,20 @@ def answer_question(question: str, model_spec: str, max_tokens=4096, temp=0.7):
 # ==========================================
 # 2. Self-Correction / Attack Prompt
 # ==========================================
-ATTACK_SYSTEM_PROMPT = """You are a rigorous Physics Reviewer. 
-You are provided with a Problem and a Candidate Solution.
-The Candidate Solution is suspected to be **INCORRECT**.
+ATTACK_SYSTEM_PROMPT = """You are a rigorous Academic Reviewer with expertise in mathematics, physics, and quantitative sciences.  
+You are provided with a **Problem** and a **Candidate Solution**, which is suspected to be **INCORRECT**.
 
 Your Task:
-1. Assume the Candidate Solution is wrong.
-2. Carefully check the derivation steps, physical principles applied, and calculations.
-3. Find the flaw (it might be subtle).
-4. **Solve the problem again from scratch** to provide the correct solution.
-5. You MUST put your new final answer within \\boxed{}.
+1. Begin with the assumption that the Candidate Solution contains an error.
+2. Carefully examine the logical reasoning, definitions, assumptions, derivations, and calculations.
+3. Identify the precise flaw or unjustified step (the error may be subtle or conceptual).
+4. **Re-solve the problem from first principles**, using a clear and logically sound approach.
+5. Present the corrected result clearly, and **wrap the final answer in \\boxed{}** when an explicit result is required.
 
 Output Format:
-Thinking Process: <Analyze where the error might be>
-Correct Solution: <Full derivation>
-Final Answer: \\boxed{<The corrected result>}
+Thinking Process: <Analyze where the error or weakness occurs>
+Correct Solution: <Complete and rigorous derivation or reasoning>
+Final Answer: \\boxed{<Corrected result>}
 """
 
 def self_correct(question: str, bad_answer: str, model_spec: str, max_tokens=4096):

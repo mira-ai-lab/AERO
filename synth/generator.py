@@ -42,38 +42,9 @@ def load_prompt_template():
     return read_text(PROMPT_FILE)
 
 # max_workers 默认为 30，可根据显存情况调整
-def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024, max_workers=30):
+def generate_questions(n: int, model_spec: str, temperature=1.0, max_tokens=1024, max_workers=30):
     raw_template = load_prompt_template()
     questions = []
-    
-    # def _generate_single(idx):
-    #     # 使用轮询选择 (idx % len)，确保 n 个问题均匀覆盖所有领域
-    #     topic = PHYSICS_TOPICS[idx % len(PHYSICS_TOPICS)]
-        
-    #     # 替换占位符
-    #     if "{focus}" in raw_template:
-    #         prompt_text = raw_template.replace("{focus}", topic)
-    #     else:
-    #         # Fallback: 如果模板里没有 {focus}，强行追加约束
-    #         prompt_text = raw_template + f"\n\nConstraint: The problem must focus on {topic}."
-        
-    #     try:
-    #         out = generate(model_spec, prompt_text, max_tokens=max_tokens, temperature=temperature)
-    #         data = json.loads(out.strip())
-    #         return {
-    #             "question": data.get("question", out), 
-    #             "meta": data.get("meta", {}),
-    #             "prompt": prompt_text,
-    #             "topic_tag": topic # [新增] 记录一下是哪个领域
-    #         }
-    #     except Exception:
-    #         # 容错处理
-    #         return {
-    #             "question": out.strip() if 'out' in locals() else "", 
-    #             "meta": {},
-    #             "prompt": prompt_text,
-    #             "topic_tag": topic
-    #         }
 
     def _generate_single(idx):
         prompt_text = raw_template  # 直接使用模板
@@ -94,7 +65,7 @@ def generate_questions(n: int, model_spec: str, temperature=0.9, max_tokens=1024
                 "prompt": prompt_text
             }
 
-    print(f"Generating {n} questions with {max_workers} workers (Topics coverage: {len(PHYSICS_TOPICS)} areas)...")
+    print(f"Generating {n} questions with {max_workers} workers")
     
     # 使用线程池并发请求
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
