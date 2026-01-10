@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from local_model.local_model_interface import generate
 from utils.io import read_text
 from tqdm import tqdm
+import re
 
 PROMPT_FILE = "synth/prompt_template.txt"
 

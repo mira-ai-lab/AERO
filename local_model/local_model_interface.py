@@ -10,6 +10,7 @@ import os
 import time
 from typing import Optional
 import requests
+import random
 
 # Lazy import transformers only if used
 _transformers_loaded = False
@@ -91,6 +92,6 @@ def generate(model_spec: str, prompt: str, max_tokens=512, temperature=0.2, enab
         url_list = raw_urls.split(",")
         # 3. 随机选择一个后端进行负载均衡
         target_url = random.choice(url_list)
-        return generate_from_http(target_url, prompt, max_tokens, temperature, enable_thinking)
+        return generate_from_http(target_url, prompt, max_tokens, temperature)
     else:
         raise ValueError("Unsupported model_spec format.")
