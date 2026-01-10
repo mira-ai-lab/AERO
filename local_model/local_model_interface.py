@@ -64,7 +64,10 @@ def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
             {"role": "user", "content": prompt}
         ],
         "max_tokens": max_tokens,
-        "temperature": float(temperature)
+        "temperature": float(temperature),
+        "chat_template_kwargs": {
+            "enable_thinking": False
+        }
     }
 
     try:
@@ -78,11 +81,16 @@ def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
         # 返回空字符串或重新引发异常，以匹配原始逻辑
         raise e
 
-def generate(model_spec: str, prompt: str, max_tokens=512, temperature=0.2):
+def generate(model_spec: str, prompt: str, max_tokens=512, temperature=0.2, enable_thinking=False):
     if model_spec.startswith("hf::") or model_spec.startswith("local::"):
         return generate_from_transformers(model_spec, prompt, max_tokens, temperature)
     elif model_spec.startswith("http::"):
-        url = model_spec.split("::",1)[1]
-        return generate_from_http(url, prompt, max_tokens, temperature)
+        # 1. 提取 URL 列表部分
+        raw_urls = model_spec.split("::", 1)[1]
+        # 2. 支持逗号分隔的多个 URL: "http://host:8001,http://host:8002"
+        url_list = raw_urls.split(",")
+        # 3. 随机选择一个后端进行负载均衡
+        target_url = random.choice(url_list)
+        return generate_from_http(target_url, prompt, max_tokens, temperature, enable_thinking)
     else:
-        raise ValueError("Unsupported model_spec format. Use 'hf::', 'local::' or 'http::'.")
+        raise ValueError("Unsupported model_spec format.")

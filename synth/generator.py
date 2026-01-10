@@ -64,6 +64,34 @@ def generate_questions(n: int, model_spec: str, temperature=1.0, max_tokens=1024
                 "meta": {},
                 "prompt": prompt_text
             }
+    # def _generate_single(idx):
+    #     prompt_text = raw_template 
+
+    #     try:
+    #         # 直接获取模型生成的文本
+    #         out = generate(model_spec, prompt_text, max_tokens=max_tokens, temperature=temperature)
+            
+    #         # --- 核心简化：不再尝试解析 JSON ---
+    #         question_content = out.strip()
+            
+    #         # 如果模型不听话加了 ```markdown 块，可以简单清理（可选）
+    #         if question_content.startswith("```"):
+    #             # 移除开头的 ```... 和结尾的 ```
+    #             question_content = re.sub(r'^```[\w]*\n', '', question_content)
+    #             question_content = re.sub(r'\n```$', '', question_content)
+
+    #         return {
+    #             "question": question_content, 
+    #             "meta": {}, # 由于不再要求 JSON，这里置空或存储默认值
+    #             "prompt": prompt_text
+    #         }
+    #     except Exception as e:
+    #         print(f"Error during single generation: {e}")
+    #         return {
+    #             "question": "", 
+    #             "meta": {},
+    #             "prompt": prompt_text
+    #         }
 
     print(f"Generating {n} questions with {max_workers} workers")
     

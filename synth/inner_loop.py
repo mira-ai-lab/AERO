@@ -29,10 +29,16 @@ def process_single_question_self_play(q, model_spec, n_samples=16):
     
     # --- 1. 采样 N 次 ---
     responses = []
-    for _ in range(n_samples):
-        # 注意：这里调用 answer_question 内部会加上 ANSWER_SYSTEM_PROMPT
-        ans = answer_question(question_text, model_spec, temp=1.0)
-        responses.append(ans)
+    # for _ in range(n_samples):
+    #     # 注意：这里调用 answer_question 内部会加上 ANSWER_SYSTEM_PROMPT
+    #     ans = answer_question(question_text, model_spec, temp=1.0)
+    #     responses.append(ans)
+    with ThreadPoolExecutor(max_workers=n_samples) as sample_executor:
+        futures = [
+            sample_executor.submit(answer_question, question_text, model_spec, temp=1.0)
+            for _ in range(n_samples)
+        ]
+        responses = [f.result() for f in futures]
     
     # --- 2. 模型聚类与分布分析 ---
     cluster_res = cluster_answers_with_model(responses, model_spec)

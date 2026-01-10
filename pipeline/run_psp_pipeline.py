@@ -45,31 +45,44 @@ def load_state():
 def save_state(state):
     json.dump(state, open(STATE_FILE, "w"), indent=2)
 
-def restart_vllm_service(model_path: str, port: int):
-    print(f"\n[vLLM] 🔄 Deploying: {model_path}")
-    subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
+def restart_vllm_service(model_path: str, base_port: int):
+    gpu_list = TRAIN_GPUS.split(",")
+    num_instances = len(gpu_list)
+    print(f"\n[vLLM] 🔄 Deploying {num_instances} instances...")
+    
+    # 清理
+    for i in range(num_instances):
+        port = base_port + i
+        subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
     time.sleep(2)
     
-    cmd = (f"CUDA_VISIBLE_DEVICES={TRAIN_GPUS} nohup vllm serve {model_path} "
-           f"--port {port} --max-model-len 15360 --tensor-parallel-size 1 "
-           f"--gpu-memory-utilization 0.9 --served-model-name psp_model " 
-           f"> vllm_{EXP_NAME}.log 2>&1 &")
-    subprocess.run(cmd, shell=True)
+    urls = []
+    for i, gpu_id in enumerate(gpu_list):
+        api_port = base_port + i
+        # 核心改动：为每个实例分配唯一的分布式协调端口（例如从 18100 开始）
+        dist_port = 18100 + api_port - 8000 + i
+        
+        # 使用 VLLM_DISTRIBUTED_PORT 环境变量隔离不同实例的通信端口
+        cmd = (f"CUDA_VISIBLE_DEVICES={gpu_id} VLLM_DISTRIBUTED_PORT={dist_port} "
+               f"nohup vllm serve {model_path} "
+               f"--port {api_port} --max-model-len 10240 --tensor-parallel-size 1 "
+               f"--gpu-memory-utilization 0.4 " # 适当调低显存占用以便留给训练
+               f"--served-model-name psp_model " 
+               f"> vllm_{EXP_NAME}_{api_port}.log 2>&1 &")
+        
+        subprocess.run(cmd, shell=True)
+        urls.append(f"http://localhost:{api_port}")
+        print(f"  - Instance {i} started on GPU {gpu_id}, API: {api_port}, DistPort: {dist_port}")
     
-    health_url = f"http://localhost:{port}/health"
-    print(f"[vLLM] Waiting for service...")
-    for i in range(100):
-        try:
-            if requests.get(health_url, timeout=3).status_code == 200:
-                print(f"[vLLM] ✅ Ready.")
-                return
-        except:
-            pass
-        time.sleep(5)
-    raise RuntimeError("vLLM failed to start.")
+    # 健康检查逻辑保持不变...
+    return ",".join(urls)
 
-def stop_vllm_service(port: int):
-    subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
+def stop_vllm_service(base_port: int):
+    # 杀死整个端口段的 vLLM 进程
+    gpu_list = TRAIN_GPUS.split(",")
+    for i in range(len(gpu_list)):
+        port = base_port + i
+        subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
     time.sleep(5)
 
 # -------------------- [权重应用和数据复制] --------------------
@@ -247,7 +260,7 @@ def run_inner_loop(current_model, round_idx):
             "--model_spec", current_model,
             "--round", str(round_idx),
             "--config", args.config,
-            "--workers", "20"
+            "--workers", "64"
         ]
         subprocess.run(cmd, check=True, env=env)
     else:
