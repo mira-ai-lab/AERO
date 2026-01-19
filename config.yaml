@@ -1,28 +1,24 @@
-# config.yaml
 default:
   initial_model: "http::http://localhost:8001"
   init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
   
   rounds: 5
   questions_per_round: 1000
-  
-  sampling_n: 16       # 每个问题生成 N 个回答
+  sampling_n: 16
 
-  # 是否开启错位训练 (True: Gen用N, Solver用N-1; False: 均为N)
   use_staggered_training: true 
 
   replay_pool_size: 500
   
   kto_replay_ratios:
-    answer_solver: 0.7
-    answer_refiner: 0.3
-    question_generation: 0
+    solver: 0.7
+    refiner: 0.3
+    generator: 0.0
 
-  # KTO 样本权重配置 (可选)
   kto_weights:
-    question_generation: 1.0
-    answer_solver: 1.0
-    answer_refiner: 1.0
+    generator: 1.0
+    solver: 1.0
+    refiner: 1.0
 
   llama_factory_dir: "LLaMA-Factory"
   kto_gpus: "0,1"

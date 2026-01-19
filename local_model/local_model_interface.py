@@ -1,11 +1,4 @@
 # local_model/local_model_interface.py
-"""
-支持三类本地模型访问方式：
-- hf::<model_name> -> 使用 transformers AutoModelForCausalLM + tokenizer
-- local::<path>   -> 假设 path 是 transformers checkpoint dir
-- http::<url>     -> 发送 POST 到本地推理服务（JSON { "prompt": "..."}）
-接口：generate(prompt, max_tokens=512, temperature=0.2)
-"""
 import os
 import time
 from typing import Optional
@@ -41,16 +34,11 @@ def generate_from_transformers(model_spec: str, prompt: str, max_tokens=512, tem
         pad_token_id=_tokenizer.eos_token_id
     )
     out = _tokenizer.decode(gen[0], skip_special_tokens=True)
-    # Remove the prompt prefix if model echoes it
     if out.startswith(prompt):
         return out[len(prompt):].strip()
     return out.strip()
 
 def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
-    # url 应该是 vLLM 的基础 URL，例如 http://localhost:8000
-    # 附加 /v1/chat/completions
-    
-    # 确保 URL 基础正确
     if url.endswith("/generate"):
         base_url = url.replace("/generate", "")
     else:
@@ -75,22 +63,18 @@ def generate_from_http(url: str, prompt: str, max_tokens=2048, temperature=0.2):
         resp = requests.post(completion_url, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
         data = resp.json()
-        # 解析 OpenAI 格式的响应
         return data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.RequestException as e:
         print(f"Error calling vLLM API at {completion_url}: {e}")
-        # 返回空字符串或重新引发异常，以匹配原始逻辑
         raise e
 
 def generate(model_spec: str, prompt: str, max_tokens=512, temperature=0.2, enable_thinking=False):
     if model_spec.startswith("hf::") or model_spec.startswith("local::"):
         return generate_from_transformers(model_spec, prompt, max_tokens, temperature)
     elif model_spec.startswith("http::"):
-        # 1. 提取 URL 列表部分
         raw_urls = model_spec.split("::", 1)[1]
-        # 2. 支持逗号分隔的多个 URL: "http://host:8001,http://host:8002"
+        # URL: "http://host:8001,http://host:8002"
         url_list = raw_urls.split(",")
-        # 3. 随机选择一个后端进行负载均衡
         target_url = random.choice(url_list)
         return generate_from_http(target_url, prompt, max_tokens, temperature)
     else:

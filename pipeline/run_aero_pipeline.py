@@ -12,7 +12,7 @@ os.environ['http_proxy'] = ''
 os.environ['https_proxy'] = ''
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--exp_name", type=str, default="default_exp")
+parser.add_argument("--exp_name", type=str, default="aero_default_exp")
 parser.add_argument("--port", type=int, default=8001)
 parser.add_argument("--gpus", type=str, default=None)
 parser.add_argument("--config", type=str, default="config.yaml")
@@ -22,7 +22,7 @@ EXP_NAME = args.exp_name
 EXP_ROOT = os.path.join("experiments", EXP_NAME)
 os.makedirs(EXP_ROOT, exist_ok=True)
 
-print(f"Loading config from: {args.config}")
+print(f"Loading AERO config from: {args.config}")
 CFG = yaml.safe_load(open(args.config, 'r', encoding='utf-8'))
 STATE_FILE = os.path.join(EXP_ROOT, "pipeline_state.json")
 VLLM_PORT = args.port
@@ -48,9 +48,8 @@ def save_state(state):
 def restart_vllm_service(model_path: str, base_port: int):
     gpu_list = TRAIN_GPUS.split(",")
     num_instances = len(gpu_list)
-    print(f"\n[vLLM] 🔄 Deploying {num_instances} instances...")
+    print(f"\n[vLLM] 🔄 Deploying {num_instances} AERO instances...")
     
-    # 清理旧进程
     for i in range(num_instances):
         port = base_port + i
         subprocess.run(f"pkill -f 'vllm.*--port {port}' || true", shell=True)
@@ -59,33 +58,29 @@ def restart_vllm_service(model_path: str, base_port: int):
     urls = []
     for i, gpu_id in enumerate(gpu_list):
         api_port = base_port + i
-        # 为每个实例分配唯一的分布式协调端口（防止多卡环境冲突）
         dist_port = 18100 + (api_port - 8000) + i
         internal_port = 19000 + (api_port - 8000) * 10
         
-        # 在命令行中同时设置 VLLM_PORT 和 VLLM_DISTRIBUTED_PORT
         cmd = (f"CUDA_VISIBLE_DEVICES={gpu_id} "
-            f"VLLM_PORT={internal_port} "            # 解决 18005 类似的内部冲突
-            f"VLLM_DISTRIBUTED_PORT={dist_port} "   # 解决分布式协调冲突
+            f"VLLM_PORT={internal_port} "            
+            f"VLLM_DISTRIBUTED_PORT={dist_port} "   
             f"nohup vllm serve {model_path} "
-            f"--port {api_port} "                    # 对外 API 端口
+            f"--port {api_port} "                    
             f"--max-model-len 10240 --tensor-parallel-size 1 "
             f"--gpu-memory-utilization 0.9 "
-            f"--served-model-name psp_model " 
+            f"--served-model-name aero_model " 
             f"> vllm_{EXP_NAME}_{api_port}.log 2>&1 &")
         
         subprocess.run(cmd, shell=True)
         urls.append(f"http://localhost:{api_port}")
         print(f"  - Instance {i} started on GPU {gpu_id}, API: {api_port}, DistPort: {dist_port}")
     
-    # === 关键修复：健康检查所有实例 ===
     print(f"[vLLM] ⏳ Waiting for all {num_instances} instances to be ready...")
     max_retries = 60 
     for i in range(max_retries):
         ready_count = 0
         for url in urls:
             try:
-                # 检查 vLLM 模型加载状态
                 resp = requests.get(f"{url}/v1/models", timeout=5)
                 if resp.status_code == 200:
                     ready_count += 1
@@ -93,11 +88,11 @@ def restart_vllm_service(model_path: str, base_port: int):
                 continue 
         
         if ready_count == num_instances:
-            print(f"[vLLM] ✅ All {num_instances} instances are ready!")
+            print(f"[vLLM] ✅ All {num_instances} AERO instances are ready!")
             return ",".join(urls)
         
         print(f"  - Instances ready: {ready_count}/{num_instances}. Still loading... ({i+1}/{max_retries})")
-        time.sleep(15) # 给模型加载留出充足时间
+        time.sleep(15)
 
     raise RuntimeError("One or more vLLM instances failed to start within the timeout period.")
 
@@ -159,12 +154,16 @@ def aggregate_kto_for_replay(exp_root, history_end_round, replay_pool_size, repl
     return replay_data
 
 def aggregate_dataset_strategy(exp_root, current_round, config):
+    """
+    Staggered Training Strategy
+    """
     use_staggered = config["default"].get("use_staggered_training", False)
     replay_pool_size = config["default"].get("replay_pool_size", 500)
     replay_ratios = config["default"].get("kto_replay_ratios", {})
     fresh_data = []
-    gen_types = ["question_generation", "question_generation_consistent", "question_generation_chaotic"]
-    solver_types = ["answer_solver", "answer_refiner"]
+    
+    gen_types = ["generator"]
+    solver_types = ["solver", "refiner"]
     
     if use_staggered:
         fresh_data.extend(get_data_by_type_from_round(exp_root, current_round, gen_types))
@@ -181,7 +180,7 @@ def aggregate_dataset_strategy(exp_root, current_round, config):
     return fresh_data + replay_data
 
 def run_inner_loop(current_model, round_idx):
-    print(f"[Round {round_idx}] 🚀 Inner Loop (Model: {current_model})")
+    print(f"[Round {round_idx}] 🚀 AERO Inner Loop (Model: {current_model})")
     out_dir = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}")
     os.makedirs(out_dir, exist_ok=True)
     kto_data_dir = os.path.join(EXP_ROOT, "kto_data")
@@ -217,9 +216,12 @@ def prepare_kto_data_for_llamafactory(round_idx, llama_factory_dir):
     return dataset_name
 
 def run_outer_loop(base_model_path: str, round_idx: int):
+    """
+    [cite_start]外环策略优化: 将合成的偏好数据集翻译为策略更新 [cite: 208, 422]
+    """
     dataset_name = prepare_kto_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
-    lora_output_dir = os.path.join(EXP_ROOT, f"saves/psp_round_{round_idx}")
-    final_merged_dir = os.path.join(EXP_ROOT, f"models/psp_round_{round_idx}")
+    lora_output_dir = os.path.join(EXP_ROOT, f"saves/aero_round_{round_idx}")
+    final_merged_dir = os.path.join(EXP_ROOT, f"models/aero_round_{round_idx}")
     train_yaml_path = os.path.join(EXP_ROOT, f"outputs/round_{round_idx}/kto_config.yaml")
     
     with open(KTO_TRAIN_TEMPLATE_YAML, 'r') as f: cfg = yaml.safe_load(f)
@@ -250,7 +252,7 @@ def main():
 
     for r in range(state["round"] + 1, CFG["default"]["rounds"] + 1):
         run_inner_loop(state["current_model"], r)
-        stop_vllm_service(VLLM_PORT)
+        stop_vllm_service(VLL_PORT)
         new_model_local = run_outer_loop(current_model_path, r)
         new_path = new_model_local.replace("local::", "")
         urls = restart_vllm_service(new_path, VLLM_PORT)
