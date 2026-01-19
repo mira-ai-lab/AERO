@@ -26,22 +26,21 @@ AERO achieves superior performance for data-free self-evolution:
 AERO/
 ├── .gitignore
 ├── README.md               # Project documentation and framework overview
-├── config.yaml             # Global configuration (rounds, sampling_n, ZPD thresholds)
+├── config.yaml             # Global configuration
 ├── requirements.txt        # Python dependencies
-├── aggregate_results.py    # Utility to aggregate metrics across rounds
 │
 ├── local_model/
 │   └── local_model_interface.py    # Interface for vLLM/local model inference
 │
 ├── pipeline/
-│   └── run_aero_pipeline.py        # Main automated dual-loop evolution script
+│   └── run_aero_pipeline.py        # Main dual-loop evolution script
 │
 ├── synth/
 │   ├── answer_analyzer.py          # Entropy calculation & ZPD positioning logic
 │   ├── answerer.py                 # Solver & Refiner role prompts and logic
 │   ├── generator.py                # Task generation (Self-Questioning) logic
 │   ├── inner_loop.py               # Experience synthesis & ICC verification
-│   └── prompt_template.txt         # Base generation prompts 
+│   └── prompt_template.txt         # Generator prompt
 │
 ├── train/
 │   └── run_pipeline.sh             # Entry point shell script for training
