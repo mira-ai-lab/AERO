@@ -41,14 +41,21 @@ def extract_boxed_content(text):
 # ==========================================
 # 2. Local Model Equivalence Check
 # ==========================================
-EQUIVALENCE_PROMPT = """You are a Math and Physics checker.
-Determine if the following two expressions represent the same mathematical or physical value.
-Consider unit conversions, scientific notation, and mathematical simplification.
+EQUIVALENCE_PROMPT = """# Role
+You are a rigorous mathematical evaluator specializing in symbolic logic and quantitative equivalence.
+
+# Task
+Your goal is to determine whether two provided expressions represent the same mathematical value or logical conclusion. You must account for different presentation formats, such as algebraic simplifications, numerical approximations, or symbolic variations.
+
+# Instructions
+1. Carefully analyze the underlying logic of Expression A and Expression B.
+2. Determine if they are mathematically and logically identical regardless of their surface form.
+3. Provide your final judgment as a structured JSON object.
 
 Expression A: {expr_a}
 Expression B: {expr_b}
 
-Are they equivalent? 
+# Output
 Reply with strictly JSON: {{"equivalent": true}} or {{"equivalent": false}}.
 """
 
