@@ -216,9 +216,6 @@ def prepare_kto_data_for_llamafactory(round_idx, llama_factory_dir):
     return dataset_name
 
 def run_outer_loop(base_model_path: str, round_idx: int):
-    """
-    [cite_start]外环策略优化: 将合成的偏好数据集翻译为策略更新 [cite: 208, 422]
-    """
     dataset_name = prepare_kto_data_for_llamafactory(round_idx, LLAMA_FACTORY_DIR)
     lora_output_dir = os.path.join(EXP_ROOT, f"saves/aero_round_{round_idx}")
     final_merged_dir = os.path.join(EXP_ROOT, f"models/aero_round_{round_idx}")

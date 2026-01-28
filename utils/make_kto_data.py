@@ -4,9 +4,6 @@ import os
 from utils.io import read_jsonl
 
 def convert_to_kto_format(infile, outfile):
-    """
-    将内部的 KTO jsonl 转换为 LLaMA-Factory 支持的 json 格式
-    """
     data = read_jsonl(infile)
     out = []
     for item in data:
