@@ -62,7 +62,7 @@ First, clone the repository and install the necessary dependencies. AERO require
 
 ```bash
 # Clone the repository
-git clone https://github.com/gaozhitao121/AERO.git
+git clone git clone https://github.com/anonymous_user/AERO.git
 cd AERO
 
 # Install core dependencies

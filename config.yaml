@@ -1,6 +1,6 @@
 default:
   initial_model: "http::http://localhost:8001"
-  init_model_path: "/root/codespace/hf_resources/Qwen2.5-7B-Instruct"
+  init_model_path: "path/to/your/model"
   
   rounds: 5
   questions_per_round: 1000
