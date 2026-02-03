@@ -10,7 +10,7 @@ Repo for "<a href="" target="_blank">AERO: Autonomous Evolutionary Reasoning Opt
 
 ## 🔥News
 
-- [2026/02/03] 🔥🔥🔥 AERO anonymous repo is released!
+- [2026/02/03] 🔥🔥🔥 AERO repo is released!
 
 ## 📊 Results
 
