@@ -10,7 +10,7 @@ Repo for "<a href="" target="_blank">AERO: Autonomous Evolutionary Reasoning Opt
 
 ## 🔥News
 
-- [2026/01/23] 🔥🔥🔥 AERO anonymous repo is released!
+- [2026/02/03] 🔥🔥🔥 AERO anonymous repo is released!
 
 ## 📊 Results
 
@@ -62,7 +62,7 @@ First, clone the repository and install the necessary dependencies. AERO require
 
 ```bash
 # Clone the repository
-git clone git clone https://github.com/anonymous_user/AERO.git
+git clone git clone https://github.com/mira-ai-lab/AERO.git
 cd AERO
 
 # Install core dependencies
