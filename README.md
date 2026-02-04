@@ -1,7 +1,9 @@
 # AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Feedback
 
 <p align="center">
-Repo for "<a href="" target="https://arxiv.org/abs/2602.03084">AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Feedback</a>"
+Repo for "<a href="https://arxiv.org/abs/2602.03084" target="_blank">
+AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Feedback
+</a>"
 </p>
 
 <p align="center">
