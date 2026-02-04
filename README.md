@@ -103,10 +103,13 @@ bash train/run_pipeline.sh aero_qwen_7b 8001 "0,1" config.yaml
 If you find AERO useful in your research, please cite our work:
 
 ```
-@article{aero2026,
-  title={AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Feedback},
-  author={Anonymous Authors},
-  journal={Under review},
-  year={2026}
+@misc{gao2026aeroautonomousevolutionaryreasoning,
+      title={AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Feedback}, 
+      author={Zhitao Gao and Jie Ma and Xuhong Li and Pengyu Li and Ning Qu and Yaqiang Wu and Hui Liu and Jun Liu},
+      year={2026},
+      eprint={2602.03084},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2602.03084}, 
 }
 ```
