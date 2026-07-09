@@ -12,6 +12,7 @@ AERO: Autonomous Evolutionary Reasoning Optimization via Endogenous Dual-Loop Fe
 
 ## 🔥News
 
+- [2026/07/09] 🔥🔥🔥 AERO is accepted by COLM 2026! See you in S.F!
 - [2026/02/03] 🔥🔥🔥 AERO repo is released!
 
 ## 📊 Results
